@@ -59,13 +59,19 @@ class Screens(private val act: MainActivity) {
                     )
                 ),
                 choiceRow(
-                    ui.t("اتجاه التمرير (تغيير الصفحة)", "Scroll direction (page turn)"),
-                    if (st.scrollDir == "v") ui.t("رأسي", "Vertical") else ui.t("أفقي", "Horizontal"),
+                    ui.t("طريقة التصفح", "Reading layout"),
+                    if (st.readMode == "c") ui.t("كل الصفحات تحت بعضها", "All pages stacked") else ui.t("صفحة بصفحة (سحب جانبي)", "Page by page (side swipe)"),
                     listOf(
-                        ui.t("أفقي (سحب يمينًا/يسارًا)", "Horizontal (swipe left/right)") to { st.scrollDir = "h"; again() },
-                        ui.t("رأسي (سحب لأعلى/لأسفل)", "Vertical (swipe up/down)") to { st.scrollDir = "v"; again() }
+                        ui.t("صفحة بصفحة — اتجاه السحب حسب اللغة", "Page by page — swipe direction follows language") to { st.readMode = "h"; again() },
+                        ui.t("كل الصفحات تحت بعضها (تمرير رأسي)", "All pages stacked (vertical scroll)") to { st.readMode = "c"; again() }
                     )
                 ),
+                toggleRow(
+                    ui.t("عكس اتجاه تقليب الصفحات", "Reverse page-turn direction"),
+                    if (st.arabic) ui.t("الافتراضي بالعربية: السحب من اليسار لليمين = الصفحة التالية", "Default: swipe left→right = next page")
+                    else ui.t("الافتراضي: السحب من اليمين لليسار = الصفحة التالية", "Default: swipe right→left = next page"),
+                    st.flipSwipe
+                ) { st.flipSwipe = it },
                 choiceRow(
                     ui.t("مدة اختفاء الأدوات", "Hide tools after"),
                     if (st.hideSecs == 0) ui.t("أبدًا", "Never") else ui.t("${st.hideSecs} ثوانٍ", "${st.hideSecs} s"),

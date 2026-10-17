@@ -16,45 +16,88 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import kotlin.math.max
 
-/** Full-screen home image (cover-fit). Only the GRIMOIRE button area of the image is tappable. */
+/** Full-screen home image (cover-fit). Only the GRIMOIRE button area of the image is tappable, with press feedback. */
 class HomeView(ctx: Context, private val onEnter: () -> Unit) : View(ctx) {
     private val bmp: Bitmap? = try { BitmapFactory.decodeResource(ctx.resources, R.drawable.home_bg) } catch (_: Throwable) { null }
     private val m = Matrix()
-    private val btnRect = RectF(0.05f, 0.69f, 0.95f, 0.84f)   // fractions of the image
+    private val btnRect = RectF(0.05f, 0.69f, 0.94f, 0.83f)   // fractions of the image
     private var down = false
+    private var press = 0f
+    private var anim: android.animation.ValueAnimator? = null
+    private val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    private val ring = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).also { it.style = android.graphics.Paint.Style.STROKE }
+    private val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.ANTI_ALIAS_FLAG)
+
+    private fun scaleOf(b: Bitmap) = max(width.toFloat() / b.width, height.toFloat() / b.height)
+
+    private fun screenRect(b: Bitmap): RectF {
+        val s = scaleOf(b)
+        val dx = (width - b.width * s) / 2f
+        val dy = (height - b.height * s) / 2f
+        return RectF(
+            dx + btnRect.left * b.width * s, dy + btnRect.top * b.height * s,
+            dx + btnRect.right * b.width * s, dy + btnRect.bottom * b.height * s
+        )
+    }
 
     override fun onDraw(c: Canvas) {
         c.drawColor(C.bg)
         val b = bmp ?: return
-        val s = max(width.toFloat() / b.width, height.toFloat() / b.height)
+        val s = scaleOf(b)
         val dx = (width - b.width * s) / 2f
         val dy = (height - b.height * s) / 2f
         m.reset()
         m.postScale(s, s)
         m.postTranslate(dx, dy)
-        c.drawBitmap(b, m, null)
+        c.drawBitmap(b, m, paint)
+        if (press > 0.001f) {
+            val r = screenRect(b)
+            val rad = r.height() * 0.30f
+            fill.color = android.graphics.Color.argb((120 * press).toInt(), 90, 255, 170)
+            c.drawRoundRect(r, rad, rad, fill)
+            ring.color = android.graphics.Color.argb((255 * press).toInt(), 255, 226, 140)
+            ring.strokeWidth = r.height() * 0.035f
+            c.drawRoundRect(r, rad, rad, ring)
+        }
     }
 
     private fun hit(x: Float, y: Float): Boolean {
         val b = bmp ?: return true
-        val s = max(width.toFloat() / b.width, height.toFloat() / b.height)
-        val dx = (width - b.width * s) / 2f
-        val dy = (height - b.height * s) / 2f
-        val r = RectF(
-            dx + btnRect.left * b.width * s, dy + btnRect.top * b.height * s,
-            dx + btnRect.right * b.width * s, dy + btnRect.bottom * b.height * s
-        )
-        return r.contains(x, y)
+        return screenRect(b).contains(x, y)
+    }
+
+    private fun animateTo(target: Float, ms: Long, end: (() -> Unit)? = null) {
+        anim?.cancel()
+        val a = android.animation.ValueAnimator.ofFloat(press, target)
+        a.duration = ms
+        a.addUpdateListener { press = it.animatedValue as Float; invalidate() }
+        a.addListener(object : android.animation.AnimatorListenerAdapter() {
+            override fun onAnimationEnd(an: android.animation.Animator) { end?.invoke() }
+        })
+        anim = a
+        a.start()
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { down = hit(e.x, e.y); return true }
-            MotionEvent.ACTION_UP -> {
-                if (down && hit(e.x, e.y)) { performClick(); onEnter() }
-                down = false
+            MotionEvent.ACTION_DOWN -> {
+                down = hit(e.x, e.y)
+                if (down) {
+                    performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                    playSoundEffect(android.view.SoundEffectConstants.CLICK)
+                    animateTo(1f, 90)
+                }
+                return true
             }
-            MotionEvent.ACTION_CANCEL -> down = false
+            MotionEvent.ACTION_MOVE -> if (down && !hit(e.x, e.y)) { down = false; animateTo(0f, 120) }
+            MotionEvent.ACTION_UP -> {
+                if (down && hit(e.x, e.y)) {
+                    down = false
+                    performClick()
+                    animateTo(1f, 60) { postDelayed({ onEnter() }, 90) }
+                } else { down = false; animateTo(0f, 120) }
+            }
+            MotionEvent.ACTION_CANCEL -> { down = false; animateTo(0f, 120) }
         }
         return true
     }

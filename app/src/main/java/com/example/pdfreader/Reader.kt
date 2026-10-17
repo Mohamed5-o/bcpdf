@@ -121,7 +121,13 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         view.markCy = m?.cy ?: 0f
         view.onTap = { setToolsVisible(!toolsVisible) }
         view.onInteract = { if (toolsVisible) scheduleHide() }
-        view.onPageSwipe = { d -> go(currentPage + d, true) }
+        view.onPageSwipe = { d -> go(currentPage + d, false) }
+        view.onPageChanged = { i ->
+            currentPage = i
+            entry.lastPage = i
+            view.setPageHits(searchHits.filter { it.page == i }, searchHits.getOrNull(searchIdx))
+            updateLabels()
+        }
         view.onItemSelected = { refreshEditBar() }
         view.onItemsChanged = { refreshEditBar() }
         view.onSelection = { has -> selBar?.visibility = if (has) View.VISIBLE else View.GONE }
@@ -441,6 +447,9 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
     // ───────────────────────── tools ─────────────────────────
 
     fun setEditMode(on: Boolean) {
+        if (on && st.readMode == "c" && !editMode) {
+            ui.toast(ui.t("التعديل يعمل في وضع الصفحة الواحدة، تم التبديل مؤقتًا", "Editing uses single-page view; switched temporarily"))
+        }
         editMode = on
         if (!on) setEraser(false)
         pv?.editMode = on

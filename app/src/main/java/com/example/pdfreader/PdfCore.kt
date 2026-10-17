@@ -22,7 +22,7 @@ class PdfDoc(private val ctx: Context, val uri: Uri, val docId: String) {
     private var pfd: ParcelFileDescriptor? = null
     private var renderer: PdfRenderer? = null
     private val lock = Any()
-    private val sizes = HashMap<Int, PointF>()
+    private val sizes = java.util.concurrent.ConcurrentHashMap<Int, PointF>()
     var pageCount = 0
         private set
 

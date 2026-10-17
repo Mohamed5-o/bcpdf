@@ -13,6 +13,11 @@ import android.os.Handler
 import android.os.Looper
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
+import android.view.animation.DecelerateInterpolator
+import android.widget.OverScroller
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
@@ -47,8 +52,30 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     private var fit = 1f
     private var ox = 0f
     private var oy = 0f
-    private var ovx = 0f // visual drag feedback while swiping pages
-    private var ovy = 0f
+    private var dragOff = 0f // horizontal drag offset while turning pages (px)
+    private var settleAnim: ValueAnimator? = null
+    private var settleEnd: (() -> Unit)? = null
+
+    private class NB(val bmp: Bitmap, val pw: Float, val ph: Float)
+    private val nbCache = HashMap<Int, NB>()
+    private val pendingNb = HashSet<Int>()
+    var onPageChanged: ((Int) -> Unit)? = null
+    var forcePaged = false
+
+    // ── continuous (all pages stacked vertically) ──
+    private class CB(val bmp: Bitmap, val w: Int)
+    private var psz: Array<PointF?> = emptyArray()
+    private var tops = FloatArray(1)
+    private var defSz = PointF(595f, 842f)
+    private var cx = 0f
+    private var cy = 0f
+    private val cBmps = object : LinkedHashMap<Int, CB>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, CB>?): Boolean = size > 5
+    }
+    private val cPending = HashSet<Int>()
+    @Volatile private var cLo = 0
+    @Volatile private var cHi = 0
+    private val scroller = OverScroller(ctx)
 
     // ── bitmaps ──
     private var base: Bitmap? = null
@@ -61,7 +88,9 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
 
     // ── modes ──
     var editMode = false
+        set(v) { val before = isCont(); field = v; modeChanged(before) }
     var eraser = false
+        set(v) { val before = isCont(); field = v; modeChanged(before) }
     var eraserSizePt = 14f
     var nightMode = false
         set(v) {
@@ -166,12 +195,26 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             pendingShow = Triple(index, keepZoom, restore)
             return
         }
+        if (isCont()) {
+            contShow(index, keepZoom, restore)
+            return
+        }
         val size = d.pageSize(index) ?: return
+        settleAnim?.removeAllListeners()
+        settleAnim?.cancel()
+        settleAnim = null
+        settleEnd = null
+        dragOff = 0f
+        val oldBase = base
+        if (oldBase != null && pageIndex != index) nbCache[pageIndex] = NB(oldBase, pw, ph)
         pageIndex = index
         pw = size.x
         ph = size.y
         gen++
-        base = null
+        base = nbCache[index]?.bmp
+        nbCache.remove(index)
+        val keep = nbCache.keys.filter { it < index - 1 || it > index + 1 }
+        for (k in keep) nbCache.remove(k)
         tile = null
         clearTextSelection()
         pageText = null
@@ -197,6 +240,8 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     }
 
     fun relayout() {
+        if (isCont()) { rebuildTops(); clampCont(); contEnsure(); invalidate(); return }
+        nbCache.clear()
         computeFit()
         clampPan()
         requestBase()
@@ -205,6 +250,13 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
 
     /** Visible centre as page fractions + zoom (for resume marks / auto-saved position). */
     fun viewState(): FloatArray {
+        if (isCont() && psz.isNotEmpty()) {
+            val i = pageIndex.coerceIn(0, psz.size - 1)
+            val hh = max(1f, pageH(i) * zoom)
+            val fx = ((cx + width / 2f) / max(1f, width * zoom)).coerceIn(0f, 1f)
+            val fy = ((cy + height / 2f - tops[i] * zoom) / hh).coerceIn(0f, 1f)
+            return floatArrayOf(fx, fy, zoom)
+        }
         val s = fit * zoom
         val cx = ((width / 2f - ox) / s / pw).coerceIn(0f, 1f)
         val cy = ((height / 2f - oy) / s / ph).coerceIn(0f, 1f)
@@ -212,6 +264,10 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     }
 
     fun pageCenterFraction(): PointF {
+        if (isCont() && psz.isNotEmpty()) {
+            val v = viewState()
+            return PointF(v[0].coerceIn(0.05f, 0.95f), v[1].coerceIn(0.05f, 0.95f))
+        }
         val s = fit * zoom
         return PointF(((width / 2f - ox) / s / pw).coerceIn(0.05f, 0.95f), ((height / 2f - oy) / s / ph).coerceIn(0.05f, 0.95f))
     }
@@ -229,7 +285,15 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         val pt = pageText
         if (pt != null) {
             val r = unionRect(pt, h.start, h.start + h.len - 1)
-            if (r != null) ensureVisible(r)
+            if (r != null) {
+                if (isCont() && h.page in psz.indices) {
+                    val sN = width * zoom / max(1f, (psz[h.page] ?: defSz).x)
+                    cy = tops[h.page] * zoom + r.centerY() * sN - height * 0.4f
+                    clampCont()
+                    syncPageIndex(false)
+                    contEnsure()
+                } else ensureVisible(r)
+            }
         }
         invalidate()
     }
@@ -296,6 +360,11 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
 
     fun release() {
         released = true
+        settleAnim?.removeAllListeners()
+        settleAnim?.cancel()
+        scroller.abortAnimation()
+        nbCache.clear()
+        cBmps.clear()
         removeCallbacks(longPressRunnable)
         removeCallbacks(tileRunnable)
         exec.shutdownNow()
@@ -320,7 +389,12 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             showPage(pending.first, pending.second, pending.third)
             return
         }
+        if (isCont() && doc != null && w > 0 && h > 0) {
+            if (psz.isNotEmpty()) { relayoutKeepAnchor() }
+            return
+        }
         if (doc != null && w > 0 && h > 0) {
+            nbCache.clear()
             val keepCx = if (oldw > 0) (oldw / 2f - ox) / (fit * zoom) else 0f
             computeFit()
             if (oldw <= 0 || zoom <= 1.001f) {
@@ -350,6 +424,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                     invalidate()
                     onPageReady?.invoke()
                     scheduleTile()
+                    prefetchNeighbors()
                 }
             }
         }
@@ -361,6 +436,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     }
 
     private fun renderTile() {
+        if (isCont()) { contEnsure(); return }
         val d = doc ?: return
         if (zoom < 1.25f || released) {
             tile = null
@@ -466,9 +542,14 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(if (nightMode) Color.rgb(12, 14, 13) else Color.rgb(24, 30, 28))
         if (doc == null) return
+        if (isCont() && psz.isNotEmpty()) {
+            drawCont(canvas)
+            return
+        }
+        if (dragOff != 0f) drawNeighbor(canvas)
         val s = scale()
         canvas.save()
-        canvas.translate(ovx, ovy)
+        canvas.translate(dragOff, 0f)
         val pr = RectF(ox, oy, ox + pw * s, oy + ph * s)
 
         fillPaint.color = if (nightMode) Color.rgb(20, 22, 21) else Color.WHITE
@@ -492,31 +573,32 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         canvas.translate(ox, oy)
         canvas.scale(s, s)
         drawHighlights(canvas, s)
-        drawItems(canvas)
-        drawMark(canvas, s)
+        drawItems(canvas, pageIndex, pw, ph, true)
+        if (markPage == pageIndex) drawMark(canvas, s, pw, ph)
         drawSelectionHandles(canvas, s)
         canvas.restore()
         canvas.restore()
     }
 
-    private fun drawItems(c: Canvas) {
+    private fun drawItems(c: Canvas, page: Int, W: Float, H: Float, frame: Boolean) {
         val es = edit ?: return
         for (item in es.items) {
-            if (!item.appliesTo(pageIndex)) continue
+            if (!item.appliesTo(page)) continue
             if (item is EraseItem) {
-                item.drawOn(c, pw, ph)
+                item.drawOn(c, W, H)
                 continue
             }
             c.save()
-            c.translate(item.nx * pw, item.ny * ph)
+            c.translate(item.nx * W, item.ny * H)
             c.rotate(item.rot)
             c.translate(-item.w / 2f, -item.h / 2f)
             item.drawContent(c)
             c.restore()
         }
-        eraseItem?.drawOn(c, pw, ph)
+        if (!frame) return
+        eraseItem?.drawOn(c, W, H)
         val sel = es.byId(selectedId)
-        if (sel != null && sel.appliesTo(pageIndex) && editMode) drawFrame(c, sel)
+        if (sel != null && sel.appliesTo(page) && editMode) drawFrame(c, sel)
     }
 
     private fun drawFrame(c: Canvas, item: Item) {
@@ -593,8 +675,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         for (p in pts) c.drawCircle(p.x, p.y + r, r, fillPaint)
     }
 
-    private fun drawMark(c: Canvas, s: Float) {
-        if (markPage != pageIndex) return
+    private fun drawMark(c: Canvas, s: Float, pw: Float, ph: Float) {
         val y = markCy * ph
         strokePaint.color = Color.argb(170, 232, 190, 75)
         strokePaint.strokeWidth = ui.dpf(1.5f) / s
@@ -686,10 +767,12 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (doc == null) return true
+        if (isCont() && psz.isNotEmpty()) return onTouchCont(e)
         if (velocity == null) velocity = VelocityTracker.obtain()
         velocity?.addMovement(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                finishSettleNow()
                 onInteract?.invoke()
                 parent?.requestDisallowInterceptTouchEvent(true)
                 downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
@@ -733,7 +816,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                     lastDist = hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1))
                     lastMx = (e.getX(0) + e.getX(1)) / 2f
                     lastMy = (e.getY(0) + e.getY(1)) / 2f
-                    ovx = 0f; ovy = 0f
+                    dragOff = 0f; overA = 0f
                     removeCallbacks(tileRunnable)
                 }
             }
@@ -818,7 +901,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             !moved && up && !longPressed -> handleTap(x, y)
             moved && up -> endPanSwipe()
         }
-        ovx = 0f; ovy = 0f
+        if (dragOff != 0f && settleAnim == null) settle(0f, null)
         invalidate()
     }
 
@@ -846,14 +929,24 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
 
     // pan + page swipe ----------------------------------------------------------------
 
-    private fun swipeAxisIsX() = st.scrollDir != "v"
+    private fun fwdSign(): Float = (if (st.arabic) 1f else -1f) * (if (st.flipSwipe) -1f else 1f)
+    private fun gapPx() = ui.dpf(12f)
 
     private fun panOrSwipe(dx: Float, dy: Float) {
-        ox += dx
+        var rdx = dx
+        if (overA != 0f && Math.signum(dx) == -Math.signum(overA)) {
+            val back = if (abs(dx) > abs(overA)) -overA else dx
+            overA += back
+            rdx = dx - back
+        }
+        ox += rdx
         oy += dy
         val away = clampPan()
-        overA += if (swipeAxisIsX()) away[0] else away[1]
-        if (swipeAxisIsX()) { ovx = overA * 0.35f; ovy = 0f } else { ovy = overA * 0.35f; ovx = 0f }
+        overA += away[0]
+        val n = doc?.pageCount ?: 1
+        val nextDir = Math.signum(overA) == fwdSign()
+        val blocked = overA != 0f && ((nextDir && pageIndex >= n - 1) || (!nextDir && pageIndex <= 0))
+        dragOff = if (blocked) overA * 0.3f else overA
         invalidate()
     }
 
@@ -862,19 +955,408 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         var v = 0f
         if (vt != null) {
             vt.computeCurrentVelocity(1000)
-            v = if (swipeAxisIsX()) vt.xVelocity else vt.yVelocity
+            v = vt.xVelocity
         }
         val dist = abs(overA)
-        val far = ui.dpf(64f)
-        val near = ui.dpf(22f)
-        val fast = abs(v) > 900f && dist > near
-        if (dist > far || fast) {
-            // finger moved left/up (negative) => next page
-            onPageSwipe?.invoke(if (overA < 0) 1 else -1)
+        val far = max(ui.dpf(70f), width * 0.18f)
+        val near = ui.dpf(20f)
+        val fast = abs(v) > 800f && dist > near && Math.signum(v) == Math.signum(overA)
+        val n = doc?.pageCount ?: 1
+        val nextDir = Math.signum(overA) == fwdSign()
+        val blocked = (nextDir && pageIndex >= n - 1) || (!nextDir && pageIndex <= 0)
+        if (overA != 0f && !blocked && (dist > far || fast)) {
+            val dir = if (nextDir) 1 else -1
+            val target = if (overA < 0) -(width + gapPx()) else (width + gapPx())
+            settle(target) {
+                overA = 0f
+                onPageSwipe?.invoke(dir)
+                dragOff = 0f
+                invalidate()
+            }
         } else {
+            settle(0f, null)
             scheduleTile()
         }
         overA = 0f
+    }
+
+    private fun settle(target: Float, end: (() -> Unit)?) {
+        settleAnim?.removeAllListeners()
+        settleAnim?.cancel()
+        if (abs(target - dragOff) < 0.5f) {
+            dragOff = target
+            settleAnim = null
+            settleEnd = null
+            if (end != null) end() else { dragOff = 0f; invalidate() }
+            return
+        }
+        val a = ValueAnimator.ofFloat(dragOff, target)
+        val frac = min(1f, abs(target - dragOff) / max(1f, width.toFloat()))
+        a.duration = (150 + 170 * frac).toLong()
+        a.interpolator = DecelerateInterpolator(1.7f)
+        a.addUpdateListener { dragOff = it.animatedValue as Float; invalidate() }
+        settleEnd = end
+        a.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(an: Animator) {
+                val e = settleEnd
+                settleEnd = null
+                settleAnim = null
+                if (e != null) e() else { dragOff = 0f; invalidate() }
+            }
+        })
+        settleAnim = a
+        a.start()
+    }
+
+    private fun finishSettleNow() {
+        val a = settleAnim ?: return
+        val e = settleEnd
+        a.removeAllListeners()
+        a.cancel()
+        settleAnim = null
+        settleEnd = null
+        if (e != null) e() else { dragOff = 0f; invalidate() }
+    }
+
+    private fun neighborFor(off: Float): Int = pageIndex + (if (Math.signum(off) == fwdSign()) 1 else -1)
+
+    private fun drawNeighbor(c: Canvas) {
+        val d = doc ?: return
+        val n = neighborFor(dragOff)
+        if (n < 0 || n >= d.pageCount) return
+        val xOff = dragOff + (if (dragOff < 0) width + gapPx() else -(width + gapPx()))
+        val nb = nbCache[n]
+        val pwN = nb?.pw ?: pw
+        val phN = nb?.ph ?: ph
+        val f = if (st.fitMode == "width") width / pwN else min(width / pwN, height / phN)
+        val w = pwN * f
+        val h = phN * f
+        val l = xOff + (if (w <= width) (width - w) / 2f else 0f)
+        val t = if (h <= height) (height - h) / 2f else 0f
+        tmpRect.set(l, t, l + w, t + h)
+        fillPaint.color = if (nightMode) Color.rgb(20, 22, 21) else Color.WHITE
+        c.drawRect(tmpRect, fillPaint)
+        if (nb != null) {
+            pagePaint.colorFilter = if (nightMode) nightFilter else null
+            c.drawBitmap(nb.bmp, null, tmpRect, pagePaint)
+        }
+    }
+
+    private fun prefetchNeighbors() {
+        val d = doc ?: return
+        for (n in intArrayOf(pageIndex + 1, pageIndex - 1)) {
+            if (n < 0 || n >= d.pageCount || nbCache.containsKey(n) || !pendingNb.add(n)) continue
+            val w = width
+            val h = height
+            val fm = st.fitMode
+            exec.execute {
+                if (released || abs(n - pageIndex) > 1) {
+                    ui2.post { pendingNb.remove(n) }
+                    return@execute
+                }
+                val sz = d.pageSize(n)
+                var bmp: Bitmap? = null
+                if (sz != null) {
+                    val fN = if (fm == "width") w / sz.x else min(w / sz.x, h / sz.y)
+                    bmp = d.renderFull(n, max(200, (sz.x * fN).toInt()), 4096)
+                }
+                ui2.post {
+                    pendingNb.remove(n)
+                    if (!released && bmp != null && sz != null && abs(n - pageIndex) <= 1) nbCache[n] = NB(bmp, sz.x, sz.y)
+                }
+            }
+        }
+    }
+
+    // ───────────────────────── continuous mode ─────────────────────────
+
+    fun isCont(): Boolean = st.readMode == "c" && !editMode && !eraser && !forcePaged
+
+    private fun modeChanged(before: Boolean) {
+        val after = isCont()
+        if (before == after || doc == null || width <= 0 || height <= 0) return
+        scroller.abortAnimation()
+        showPage(pageIndex, false, null)
+    }
+
+    private fun pageH(i: Int): Float {
+        val s = psz[i] ?: defSz
+        return width * s.y / max(1f, s.x)
+    }
+
+    private fun rebuildTops() {
+        var y = 0f
+        for (i in psz.indices) {
+            tops[i] = y
+            y += pageH(i) + ui.dpf(8f)
+        }
+        tops[psz.size] = y
+    }
+
+    private fun pageAtY(yDoc: Float): Int {
+        var lo = 0
+        var hi = psz.size - 1
+        while (lo < hi) {
+            val mid = (lo + hi + 1) ushr 1
+            if (tops[mid] * zoom <= yDoc) lo = mid else hi = mid - 1
+        }
+        return lo
+    }
+
+    private fun clampCont() {
+        val maxY = max(0f, tops[psz.size] * zoom - ui.dpf(8f) * zoom - height)
+        val maxX = max(0f, width * zoom - width)
+        cy = cy.coerceIn(0f, maxY)
+        cx = cx.coerceIn(0f, maxX)
+    }
+
+    private fun initCont() {
+        val d = doc ?: return
+        val n = d.pageCount
+        if (psz.size == n) return
+        psz = arrayOfNulls(n)
+        tops = FloatArray(n + 1)
+        cBmps.clear()
+        cPending.clear()
+        Thread {
+            for (i in 0 until n) {
+                if (released) return@Thread
+                val sz = d.pageSize(i)
+                if (sz != null) psz[i] = sz
+                if (i % 30 == 29) ui2.post { if (!released && isCont()) relayoutKeepAnchor() }
+            }
+            ui2.post { if (!released && isCont()) relayoutKeepAnchor() }
+        }.also { it.isDaemon = true }.start()
+    }
+
+    private fun relayoutKeepAnchor() {
+        if (psz.isEmpty() || width <= 0) return
+        val i = pageAtY(cy + height / 2f)
+        val off = cy - tops[i] * zoom
+        rebuildTops()
+        cy = tops[i] * zoom + off
+        clampCont()
+        syncPageIndex(false)
+        contEnsure()
+        invalidate()
+    }
+
+    private fun contShow(index: Int, keepZoom: Boolean, restore: FloatArray?) {
+        val d = doc ?: return
+        settleAnim?.removeAllListeners()
+        settleAnim?.cancel()
+        settleAnim = null
+        settleEnd = null
+        dragOff = 0f
+        scroller.abortAnimation()
+        initCont()
+        val i = index.coerceIn(0, psz.size - 1)
+        d.pageSize(i)?.let { psz[i] = it; defSz = it }
+        if (!keepZoom || restore != null) zoom = 1f
+        if (restore != null) zoom = restore[2].coerceIn(1f, 4f)
+        zoom = zoom.coerceIn(1f, 4f)
+        rebuildTops()
+        if (restore != null) {
+            cy = tops[i] * zoom + restore[1] * pageH(i) * zoom - height / 2f
+            cx = restore[0] * width * zoom - width / 2f
+        } else {
+            cy = tops[i] * zoom
+            if (!keepZoom) cx = 0f
+        }
+        clampCont()
+        pageIndex = -1
+        syncPageIndex(false, i)
+        contEnsure()
+        invalidate()
+    }
+
+    /** Updates [pageIndex] from the scroll position (or [force]); loads that page's text layer. */
+    private fun syncPageIndex(notify: Boolean, force: Int = -1) {
+        if (psz.isEmpty()) return
+        val i = if (force >= 0) force else pageAtY(cy + height / 2f)
+        if (i == pageIndex) return
+        pageIndex = i
+        val s = psz[i] ?: defSz
+        pw = s.x
+        ph = s.y
+        gen++
+        selA = -1
+        selB = -1
+        pageText = null
+        pageHits = emptyList()
+        currentHit = null
+        loadPageText()
+        if (notify) onPageChanged?.invoke(i)
+    }
+
+    private fun contPan(dx: Float, dy: Float) {
+        cx -= dx
+        cy -= dy
+        clampCont()
+        syncPageIndex(true)
+        contEnsure()
+        invalidate()
+    }
+
+    private fun contZoom(newZoom: Float, fx: Float, fy: Float) {
+        val z0 = zoom
+        val z1 = newZoom.coerceIn(1f, 4f)
+        val dxx = (cx + fx) / z0
+        val dyy = (cy + fy) / z0
+        zoom = z1
+        cx = dxx * z1 - fx
+        cy = dyy * z1 - fy
+        clampCont()
+    }
+
+    private fun contEnsure() {
+        val d = doc ?: return
+        if (width <= 0 || psz.isEmpty()) return
+        val n = psz.size
+        val lo = max(0, pageAtY(cy) - 1)
+        val hi = min(n - 1, pageAtY(cy + height) + 1)
+        cLo = lo
+        cHi = hi
+        val want = min((width * zoom).toInt(), 1800).coerceAtLeast(300)
+        for (i in lo..hi) {
+            val cb = cBmps[i]
+            if (cb != null && cb.w >= want * 0.8f) continue
+            if (!cPending.add(i)) continue
+            exec.execute {
+                if (released || i < cLo || i > cHi) {
+                    ui2.post { cPending.remove(i) }
+                    return@execute
+                }
+                val bmp = d.renderFull(i, want, 4096)
+                ui2.post {
+                    cPending.remove(i)
+                    if (!released && bmp != null) {
+                        cBmps[i] = CB(bmp, want)
+                        invalidate()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun drawCont(canvas: Canvas) {
+        val n = psz.size
+        val z = zoom
+        pagePaint.colorFilter = if (nightMode) nightFilter else null
+        var i = pageAtY(cy)
+        while (i < n) {
+            val top = tops[i] * z - cy
+            if (top > height) break
+            val h = pageH(i) * z
+            val w = width * z
+            tmpRect.set(-cx, top, -cx + w, top + h)
+            val rect = RectF(tmpRect)
+            fillPaint.color = if (nightMode) Color.rgb(20, 22, 21) else Color.WHITE
+            canvas.drawRect(rect, fillPaint)
+            val cb = cBmps[i]
+            if (cb != null) canvas.drawBitmap(cb.bmp, null, rect, pagePaint)
+            else {
+                fillPaint.color = C.muted
+                fillPaint.textSize = ui.dpf(14f)
+                fillPaint.textAlign = Paint.Align.CENTER
+                canvas.drawText("${i + 1}", rect.centerX(), min(max(rect.centerY(), 40f), height - 40f), fillPaint)
+            }
+            val sz = psz[i] ?: defSz
+            val sN = w / max(1f, sz.x)
+            canvas.save()
+            canvas.clipRect(rect)
+            canvas.translate(rect.left, rect.top)
+            canvas.scale(sN, sN)
+            if (i == pageIndex) drawHighlights(canvas, sN)
+            drawItems(canvas, i, sz.x, sz.y, false)
+            if (markPage == i) drawMark(canvas, sN, sz.x, sz.y)
+            canvas.restore()
+            i++
+        }
+    }
+
+    override fun computeScroll() {
+        if (isCont() && scroller.computeScrollOffset()) {
+            cx = scroller.currX.toFloat()
+            cy = scroller.currY.toFloat()
+            clampCont()
+            syncPageIndex(true)
+            contEnsure()
+            postInvalidateOnAnimation()
+        }
+    }
+
+    private fun onTouchCont(e: MotionEvent): Boolean {
+        if (velocity == null) velocity = VelocityTracker.obtain()
+        velocity?.addMovement(e)
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                onInteract?.invoke()
+                parent?.requestDisallowInterceptTouchEvent(true)
+                scroller.forceFinished(true)
+                downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
+                moved = false
+                gesture = G_PAN
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (e.pointerCount == 2) {
+                    gesture = G_PINCH
+                    lastDist = hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1))
+                    lastMx = (e.getX(0) + e.getX(1)) / 2f
+                    lastMy = (e.getY(0) + e.getY(1)) / 2f
+                    moved = true
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (gesture == G_PINCH && e.pointerCount >= 2) {
+                    val d = hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1))
+                    val mx = (e.getX(0) + e.getX(1)) / 2f
+                    val my = (e.getY(0) + e.getY(1)) / 2f
+                    if (lastDist > 0f && d > 0f) contZoom(zoom * d / lastDist, lastMx, lastMy)
+                    cx -= mx - lastMx
+                    cy -= my - lastMy
+                    clampCont()
+                    syncPageIndex(true)
+                    lastDist = d; lastMx = mx; lastMy = my
+                    invalidate()
+                } else if (e.pointerCount == 1 && gesture == G_PAN) {
+                    if (!moved && (abs(e.x - downX) > slop || abs(e.y - downY) > slop)) moved = true
+                    if (moved) contPan(e.x - lastX, e.y - lastY)
+                    lastX = e.x
+                    lastY = e.y
+                }
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                if (gesture == G_PINCH && e.pointerCount <= 2) {
+                    val i = if (e.actionIndex == 0) 1 else 0
+                    lastX = e.getX(i); lastY = e.getY(i)
+                    downX = lastX; downY = lastY
+                    gesture = G_PAN
+                    moved = true
+                    scheduleTile()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val up = e.actionMasked == MotionEvent.ACTION_UP
+                if (gesture == G_PAN) {
+                    if (!moved && up) onTap?.invoke()
+                    else if (moved && up) {
+                        val vt = velocity
+                        if (vt != null) {
+                            vt.computeCurrentVelocity(1000)
+                            val maxY = max(0f, tops[psz.size] * zoom - ui.dpf(8f) * zoom - height).toInt()
+                            val maxX = max(0f, width * zoom - width).toInt()
+                            scroller.fling(cx.toInt(), cy.toInt(), (-vt.xVelocity).toInt(), (-vt.yVelocity).toInt(), 0, maxX, 0, maxY)
+                            postInvalidateOnAnimation()
+                        }
+                    }
+                } else if (gesture == G_PINCH) scheduleTile()
+                velocity?.recycle()
+                velocity = null
+                gesture = G_NONE
+            }
+        }
+        return true
     }
 
     // item manipulation -----------------------------------------------------------------

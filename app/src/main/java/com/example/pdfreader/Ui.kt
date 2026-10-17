@@ -85,11 +85,31 @@ class Ui(val ctx: Context, val st: Settings) {
         return v
     }
 
+    /** Visual + haptic feedback on press (does not consume the touch, so clicks still work). */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    fun pressFx(v: View, strength: Float = 0.94f) {
+        v.setOnTouchListener { view, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    view.animate().cancel()
+                    view.animate().scaleX(strength).scaleY(strength).alpha(0.78f).setDuration(70).start()
+                    view.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                }
+                android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    view.animate().cancel()
+                    view.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(140).start()
+                }
+            }
+            false
+        }
+    }
+
     fun btn(label: String, fill: Int, color: Int, stroke: Int = 0, onClick: () -> Unit): TextView {
         val v = txt(label, 14f, color, true, true)
         v.background = rounded(fill, 14, stroke)
         v.setPadding(dp(14), dp(11), dp(14), dp(11))
         v.setOnClickListener { onClick() }
+        pressFx(v)
         return v
     }
 
@@ -102,7 +122,7 @@ class Ui(val ctx: Context, val st: Settings) {
         v.layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
         val pad = dp(sizeDp / 4)
         v.setPadding(pad, pad, pad, pad)
-        if (onClick != null) v.setOnClickListener { onClick() }
+        if (onClick != null) { v.setOnClickListener { onClick() }; pressFx(v, 0.88f) }
         return v
     }
 
@@ -275,7 +295,7 @@ class Ui(val ctx: Context, val st: Settings) {
         if (subtitle != null) col.addView(txt(subtitle, 12f, C.muted))
         row.addView(col, lp(0, WRAP, 1f))
         if (trailing != null) row.addView(trailing)
-        if (onClick != null) row.setOnClickListener { onClick() }
+        if (onClick != null) { row.setOnClickListener { onClick() }; pressFx(row, 0.985f) }
         return row
     }
 

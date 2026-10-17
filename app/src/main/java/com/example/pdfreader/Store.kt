@@ -43,7 +43,9 @@ class Settings(ctx: Context) {
 
     // Reading
     var fitMode by str("fitMode", "page")          // page | width
-    var scrollDir by str("scrollDir", "h")         // h | v  (direction of page-turn swipe)
+    var scrollDir by str("scrollDir", "h")         // legacy (unused)
+    var readMode by str("readMode", "h")           // h = page by page (swipe, direction follows language) | c = all pages stacked
+    var flipSwipe by bool("flipSwipe", false)      // reverse the page-turn swipe direction
     var hideSecs by int("hideSecs", 8)             // 0 = never
     var autoSavePos by bool("autoSavePos", true)
     var restorePos by bool("restorePos", true)
