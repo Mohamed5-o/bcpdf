@@ -46,7 +46,7 @@ class SignatureView(ctx: Context, private val ui: Ui) : View(ctx) {
         paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
-        paint.strokeWidth = ui.dpf(3f)
+        paint.strokeWidth = ui.dpf(3.5f)
         background = ui.rounded(Color.WHITE, 12)
     }
 
@@ -59,8 +59,33 @@ class SignatureView(ctx: Context, private val ui: Ui) : View(ctx) {
 
     fun isEmpty() = strokes.isEmpty()
 
+    private val guide = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    fun undo() {
+        if (strokes.isEmpty()) return
+        strokes.removeAt(strokes.size - 1)
+        minX = 1e9f; minY = 1e9f; maxX = -1e9f; maxY = -1e9f
+        val rb = android.graphics.RectF()
+        for ((p, _) in strokes) {
+            p.computeBounds(rb, true)
+            minX = min(minX, rb.left); maxX = max(maxX, rb.right); minY = min(minY, rb.top); maxY = max(maxY, rb.bottom)
+        }
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        guide.color = Color.argb(70, 0, 0, 0)
+        guide.strokeWidth = ui.dpf(1.2f)
+        val gy = height * 0.68f
+        canvas.drawLine(width * 0.06f, gy, width * 0.94f, gy, guide)
+        if (strokes.isEmpty()) {
+            guide.style = Paint.Style.FILL
+            guide.textSize = ui.dpf(15f)
+            guide.textAlign = Paint.Align.CENTER
+            guide.color = Color.argb(110, 0, 0, 0)
+            canvas.drawText(ui.t("وقّع هنا بإصبعك", "Sign here with your finger"), width / 2f, gy + ui.dpf(26f), guide)
+        }
         for ((p, col) in strokes) {
             paint.color = col
             canvas.drawPath(p, paint)
@@ -79,6 +104,7 @@ class SignatureView(ctx: Context, private val ui: Ui) : View(ctx) {
                 track(e.x, e.y)
             }
             MotionEvent.ACTION_MOVE -> {
+                for (h in 0 until e.historySize) { cur?.lineTo(e.getHistoricalX(h), e.getHistoricalY(h)); track(e.getHistoricalX(h), e.getHistoricalY(h)) }
                 cur?.lineTo(e.x, e.y)
                 track(e.x, e.y)
             }
@@ -404,23 +430,26 @@ class Dialogs(private val ui: Ui, private val st: Settings) {
 
     fun signatureDialog(saved: Bitmap?, onDone: (Bitmap, Boolean) -> Unit, onDeleteSaved: () -> Unit) {
         var keep = false
-        ui.dialog { card, dlg ->
-            card.addView(ui.txt(ui.t("ارسم توقيعك", "Draw your signature"), 18f, C.gold, true, true))
+        ui.dialog(true, true) { card, dlg ->
+            card.addView(ui.txt(ui.t("ارسم توقيعك", "Draw your signature"), 19f, C.gold, true, true))
             val sig = SignatureView(ctx, ui)
-            card.addView(sig, ui.lpm(ui.MATCH, ui.dp(200), 0f, 0, ui.dp(10), 0, ui.dp(8)))
+            card.addView(sig, ui.lpm(ui.MATCH, 0, 1f, 0, ui.dp(10), 0, ui.dp(10)))
             val pens = LinearLayout(ctx)
             pens.orientation = LinearLayout.HORIZONTAL
-            pens.gravity = Gravity.CENTER
-            for (col in intArrayOf(Color.BLACK, Color.rgb(20, 60, 200))) {
+            pens.gravity = Gravity.CENTER_VERTICAL
+            pens.layoutDirection = ui.dir()
+            for (col in intArrayOf(Color.BLACK, Color.rgb(20, 60, 200), Color.rgb(190, 30, 30))) {
                 val v = View(ctx)
                 v.background = circle(col, false)
                 v.setOnClickListener { sig.penColor = col }
-                pens.addView(v, ui.lpm(ui.dp(30), ui.dp(30), 0f, ui.dp(6), 0, ui.dp(6), 0))
+                pens.addView(v, ui.lpm(ui.dp(34), ui.dp(34), 0f, ui.dp(6), 0, ui.dp(6), 0))
             }
-            pens.addView(ui.ghostBtn(ui.t("مسح", "Clear")) { sig.clear() }, ui.lpm(ui.WRAP, ui.WRAP, 0f, ui.dp(16), 0, 0, 0))
+            pens.addView(View(ctx), ui.lp(0, 1, 1f))
+            pens.addView(ui.ghostBtn(ui.t("تراجع", "Undo")) { sig.undo() }, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, ui.dp(6), 0))
+            pens.addView(ui.ghostBtn(ui.t("مسح", "Clear")) { sig.clear() })
             card.addView(pens)
             card.addView(toggleChip(ui.t("حفظ التوقيع لاستخدامه لاحقًا", "Keep this signature for later"), false) { keep = it },
-                ui.lpm(ui.MATCH, ui.dp(44), 0f, 0, ui.dp(10), 0, 0))
+                ui.lpm(ui.MATCH, ui.dp(44), 0f, 0, ui.dp(8), 0, 0))
             if (saved != null) {
                 val r = LinearLayout(ctx)
                 r.orientation = LinearLayout.HORIZONTAL
@@ -434,7 +463,7 @@ class Dialogs(private val ui: Ui, private val st: Settings) {
             }
             val row = LinearLayout(ctx)
             row.orientation = LinearLayout.HORIZONTAL
-            row.addView(ui.ghostBtn(ui.t("إلغاء", "Cancel")) { dlg.dismiss() }, ui.lpm(0, ui.WRAP, 1f, 0, ui.dp(12), ui.dp(6), 0))
+            row.addView(ui.ghostBtn(ui.t("إلغاء", "Cancel")) { dlg.dismiss() }, ui.lpm(0, ui.WRAP, 1f, 0, ui.dp(10), ui.dp(6), 0))
             row.addView(ui.primaryBtn(ui.t("إضافة", "Add")) {
                 val bmp = sig.export()
                 if (bmp == null) {
@@ -443,7 +472,7 @@ class Dialogs(private val ui: Ui, private val st: Settings) {
                     dlg.dismiss()
                     onDone(bmp, keep)
                 }
-            }, ui.lpm(0, ui.WRAP, 1f, ui.dp(6), ui.dp(12), 0, 0))
+            }, ui.lpm(0, ui.WRAP, 1f, ui.dp(6), ui.dp(10), 0, 0))
             card.addView(row)
         }
     }

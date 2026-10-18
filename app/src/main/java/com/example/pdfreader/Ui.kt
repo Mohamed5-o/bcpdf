@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
@@ -219,25 +220,30 @@ class Ui(val ctx: Context, val st: Settings) {
     }
 
     /** Modal card dialog. [build] fills the card; use the Dialog to dismiss. */
-    fun dialog(cancelable: Boolean = true, build: (LinearLayout, Dialog) -> Unit): Dialog {
+    fun dialog(cancelable: Boolean = true, full: Boolean = false, build: (LinearLayout, Dialog) -> Unit): Dialog {
         val d = Dialog(ctx)
         d.requestWindowFeature(Window.FEATURE_NO_TITLE)
         val card = LinearLayout(ctx)
         card.orientation = LinearLayout.VERTICAL
-        card.background = rounded(C.panel, 20, glow(), 1)
-        card.setPadding(dp(16), dp(16), dp(16), dp(16))
+        card.background = rounded(C.panel, 24, glow(), 1)
+        card.setPadding(dp(18), dp(18), dp(18), dp(18))
         card.layoutDirection = dir()
         build(card, d)
         val sv = ScrollView(ctx)
-        sv.addView(card)
+        sv.isFillViewport = full
+        sv.addView(card, if (full) FrameLayout.LayoutParams(MATCH, MATCH) else FrameLayout.LayoutParams(MATCH, WRAP))
         d.setContentView(sv)
         d.setCancelable(cancelable)
         val w = d.window
         if (w != null) {
             w.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            val maxW = dp(460)
-            val sw = (ctx.resources.displayMetrics.widthPixels * 0.92f).toInt()
-            w.setLayout(if (sw > maxW) maxW else sw, WRAP)
+            val maxW = dp(520)
+            val sw = (ctx.resources.displayMetrics.widthPixels * (if (full) 0.97f else 0.94f)).toInt()
+            val hh = if (full) (ctx.resources.displayMetrics.heightPixels * 0.9f).toInt() else WRAP
+            w.setLayout(if (sw > maxW) maxW else sw, hh)
+            w.setDimAmount(0.72f)
+            w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            w.setWindowAnimations(android.R.style.Animation_Dialog)
         }
         d.show()
         return d

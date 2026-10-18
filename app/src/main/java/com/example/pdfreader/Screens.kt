@@ -207,7 +207,7 @@ class Screens(private val act: MainActivity) {
         // F. about
         ui.section(
             col, ui.t("معلومات التطبيق", "About"), listOf(
-                ui.settingRow("BLACK CLOVER PDF READER & EDITOR", ui.t("الإصدار 9.1", "Version 9.1"), ui.chevron()) { act.showAbout() }
+                ui.settingRow("BLACK CLOVER PDF READER & EDITOR", ui.t("الإصدار 10.6", "Version 10.6"), ui.chevron()) { act.showAbout() }
             )
         )
 
@@ -242,7 +242,7 @@ class Screens(private val act: MainActivity) {
             card.addView(h, ui.lp(ui.MATCH, ui.WRAP))
         }
         row(ui.t("المطور", "Developer"), "Mikey (" + ui.t("محمد محمود عامر", "Mohamed Mahmoud Amer") + ")")
-        row(ui.t("الإصدار", "Version"), "9.1")
+        row(ui.t("الإصدار", "Version"), "10.6")
         row(ui.t("معلومات النسخة", "Build"), "Android " + android.os.Build.VERSION.RELEASE + " · API " + android.os.Build.VERSION.SDK_INT)
         card.addView(ui.divider())
         card.addView(

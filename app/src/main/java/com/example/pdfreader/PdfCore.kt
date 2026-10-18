@@ -290,21 +290,35 @@ class TextEngine(private val fileProvider: () -> File) {
     /** Number of pages that contained any text during the last search (0 means scanned / image-only file). */
     @Volatile
     var textPagesSeen = 0
+    @Volatile
+    var failedPages = 0
+    @Volatile
+    var lastError = ""
 
     private fun isWordChar(c: Char) = Character.isLetterOrDigit(c)
 
-    /** Light normalisation (Arabic marks and alef variants, optional case folding); keeps a map to original indexes. */
+    /** Normalisation: Arabic marks / presentation forms (NFKC) / alef variants / whitespace, optional case folding; keeps a map to original indexes. */
     private fun normalize(s: String, ignoreCase: Boolean, map: ArrayList<Int>?): String {
         val out = StringBuilder()
         for (i in s.indices) {
             var ch = s[i]
             val code = ch.code
-            if ((code in 0x064B..0x065F) || code == 0x0670 || code == 0x0640) continue
-            if (code == 0x0622 || code == 0x0623 || code == 0x0625) ch = 'ا'
-            else if (code == 0x0649) ch = 'ي'
-            if (ignoreCase) ch = Character.toLowerCase(ch)
-            out.append(ch)
-            map?.add(i)
+            if ((code in 0x064B..0x065F) || code == 0x0670 || code == 0x0640 || code == 0x200C || code == 0x200D || code == 0x200E || code == 0x200F || code == 0x00AD) continue
+            val piece: String = if (code in 0xFB50..0xFDFF || code in 0xFE70..0xFEFF) {
+                try { java.text.Normalizer.normalize(ch.toString(), java.text.Normalizer.Form.NFKC) } catch (_: Throwable) { ch.toString() }
+            } else ch.toString()
+            for (pc0 in piece) {
+                var pc = pc0
+                val k = pc.code
+                if ((k in 0x064B..0x065F) || k == 0x0670 || k == 0x0640) continue
+                if (k == 0x0622 || k == 0x0623 || k == 0x0625 || k == 0x0671) pc = 'ا'
+                else if (k == 0x0649 || k == 0x06CC) pc = 'ي'
+                else if (k == 0x06A9) pc = 'ك'
+                else if (Character.isWhitespace(pc) || k == 0x00A0) pc = ' '
+                if (ignoreCase) pc = Character.toLowerCase(pc)
+                out.append(pc)
+                map?.add(i)
+            }
         }
         return out.toString()
     }
@@ -317,13 +331,18 @@ class TextEngine(private val fileProvider: () -> File) {
         query: String, whole: Boolean, ignoreCase: Boolean, pageCount: Int,
         cancelled: () -> Boolean, progress: (Int, Int) -> Unit, onBatch: (List<SearchHit>) -> Unit
     ): Int {
-        val q = normalize(query.trim(), ignoreCase, null)
+        val q = normalize(query.trim(), ignoreCase, null).replace(Regex(" +"), " ")
         if (q.isEmpty()) return 0
+        val rtlQ = q.any { it.code in 0x0590..0x08FF }
+        val qs = if (rtlQ && q.reversed() != q) listOf(q, q.reversed()) else listOf(q)
         var total = 0
         textPagesSeen = 0
+        failedPages = 0
+        lastError = ""
+        ensureDoc()
         for (p in 0 until pageCount) {
             if (cancelled()) break
-            val pt = try { page(p) } catch (_: Exception) { null }
+            val pt = try { page(p) } catch (e: Throwable) { failedPages++; lastError = e.javaClass.simpleName + ": " + (e.message ?: ""); null }
             progress(p + 1, pageCount)
             if (pt == null || pt.text.isBlank()) continue
             textPagesSeen++
@@ -332,17 +351,22 @@ class TextEngine(private val fileProvider: () -> File) {
             val batch = ArrayList<SearchHit>()
             var from = 0
             var nth = 0
+            var qi = 0
+            var qq = qs[0]
             while (true) {
-                val at = norm.indexOf(q, from)
-                if (at < 0) break
-                from = at + max(1, q.length)
+                val at = norm.indexOf(qq, from)
+                if (at < 0) {
+                    if (batch.isEmpty() && qi + 1 < qs.size) { qi++; qq = qs[qi]; from = 0; continue }
+                    break
+                }
+                from = at + max(1, qq.length)
                 if (whole) {
                     val before = if (at > 0) norm[at - 1] else ' '
-                    val after = if (at + q.length < norm.length) norm[at + q.length] else ' '
+                    val after = if (at + qq.length < norm.length) norm[at + qq.length] else ' '
                     if (isWordChar(before) || isWordChar(after)) continue
                 }
                 val start = map[at]
-                val end = map[at + q.length - 1] + 1
+                val end = map[at + qq.length - 1] + 1
                 nth++
                 val s0 = max(0, start - 22)
                 val e0 = min(pt.text.length, end + 34)

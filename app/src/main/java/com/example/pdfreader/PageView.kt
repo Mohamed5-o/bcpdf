@@ -122,6 +122,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     var onInteract: (() -> Unit)? = null
     var onItemsChanged: (() -> Unit)? = null
     var onPageReady: (() -> Unit)? = null
+    var onMarkMoved: ((Int, Float) -> Unit)? = null
 
     // ── paints ──
     private val pagePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
@@ -163,6 +164,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     private val G_SEL_A = 7
     private val G_SEL_B = 8
     private val G_ITEM_DELETE = 9
+    private val G_MARK = 10
     private var gesture = G_NONE
     private var downX = 0f
     private var downY = 0f
@@ -691,9 +693,9 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         strokePaint.strokeWidth = ui.dpf(1.5f) / s
         c.drawLine(0f, y, pw, y, strokePaint)
         fillPaint.color = C.gold
-        val a = ui.dpf(12f) / s
+        val a = ui.dpf(16f) / s
         val p = android.graphics.Path()
-        p.moveTo(pw - a * 1.6f, y)
+        p.moveTo(pw - a * 1.8f, y)
         p.lineTo(pw, y - a)
         p.lineTo(pw, y + a)
         p.close()
@@ -811,6 +813,14 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                         else -> if (hitLocal(sel, px, py, 0f)) gesture = G_ITEM_MOVE
                     }
                 }
+                if (gesture == G_NONE && !editMode && markPage == pageIndex) {
+                    val my = oy + markCy * ph * scale()
+                    val rx = ox + pw * scale()
+                    if (abs(e.y - my) < ui.dpf(30f) && e.x > min(rx, width.toFloat()) - ui.dpf(56f)) {
+                        gesture = G_MARK
+                        parent?.requestDisallowInterceptTouchEvent(true)
+                    }
+                }
                 if (gesture == G_NONE && hasSelection()) {
                     val h = hitSelHandle(e.x, e.y)
                     if (h == 1) gesture = G_SEL_A else if (h == 2) gesture = G_SEL_B
@@ -851,6 +861,12 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                 if (!moved && (abs(x - downX) > slop || abs(y - downY) > slop)) {
                     moved = true
                     removeCallbacks(longPressRunnable)
+                }
+                if (gesture == G_MARK) {
+                    markCy = ((y - oy) / scale() / ph).coerceIn(0f, 1f)
+                    moved = true
+                    invalidate()
+                    return true
                 }
                 if (!moved && gesture != G_ERASE) return true
                 val px = toPageX(x)
@@ -906,6 +922,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                     if (sel is TextItem) onItemEdit?.invoke(sel)
                 }
             }
+            g == G_MARK -> { if (moved) onMarkMoved?.invoke(markPage, markCy) }
             g == G_SEL_A || g == G_SEL_B -> {}
             g == G_PINCH -> scheduleTile()
             !moved && up && !longPressed -> handleTap(x, y)
@@ -1309,6 +1326,11 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                 downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
                 moved = false
                 gesture = G_PAN
+                if (markPage in psz.indices && markPage < tops.size - 1) {
+                    val top = tops[markPage] * zoom - cy
+                    val my = top + markCy * pageH(markPage) * zoom
+                    if (abs(e.y - my) < ui.dpf(30f) && e.x > min(-cx + width * zoom, width.toFloat()) - ui.dpf(56f)) gesture = G_MARK
+                }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (e.pointerCount == 2) {
@@ -1330,6 +1352,11 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                     clampCont()
                     syncPageIndex(true)
                     lastDist = d; lastMx = mx; lastMy = my
+                    invalidate()
+                } else if (e.pointerCount == 1 && gesture == G_MARK) {
+                    val top = tops[markPage] * zoom - cy
+                    markCy = ((e.y - top) / max(1f, pageH(markPage) * zoom)).coerceIn(0f, 1f)
+                    moved = true
                     invalidate()
                 } else if (e.pointerCount == 1 && gesture == G_PAN) {
                     if (!moved && (abs(e.x - downX) > slop || abs(e.y - downY) > slop)) moved = true
@@ -1362,6 +1389,8 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                             postInvalidateOnAnimation()
                         }
                     }
+                } else if (gesture == G_MARK) {
+                    if (moved && up) onMarkMoved?.invoke(markPage, markCy)
                 } else if (gesture == G_PINCH) scheduleTile()
                 velocity?.recycle()
                 velocity = null

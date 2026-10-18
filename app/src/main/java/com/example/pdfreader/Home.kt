@@ -37,6 +37,11 @@ class HomeView(ctx: Context, private val ui: Ui, private val onEnter: () -> Unit
     private var press = 0f
     private var pressAnim: ValueAnimator? = null
     private var breathe = 0f
+    private var phase = 0f
+    private var rpX = 0f
+    private var rpY = 0f
+    private var rpT = 1f
+    private var rpAnim: ValueAnimator? = null
     private var breathAnim: ValueAnimator? = null
 
     private val gold = Color.rgb(236, 196, 96)
@@ -50,6 +55,7 @@ class HomeView(ctx: Context, private val ui: Ui, private val onEnter: () -> Unit
         a.repeatCount = ValueAnimator.INFINITE
         a.interpolator = LinearInterpolator()
         a.addUpdateListener {
+            phase = it.animatedFraction
             breathe = (sin(it.animatedFraction * 2.0 * Math.PI).toFloat() + 1f) / 2f
             invalidate()
         }
@@ -60,6 +66,7 @@ class HomeView(ctx: Context, private val ui: Ui, private val onEnter: () -> Unit
     override fun onDetachedFromWindow() {
         breathAnim?.cancel()
         pressAnim?.cancel()
+        rpAnim?.cancel()
         super.onDetachedFromWindow()
     }
 
@@ -129,6 +136,32 @@ class HomeView(ctx: Context, private val ui: Ui, private val onEnter: () -> Unit
             p.color = Color.argb((90 * press).toInt(), 130, 255, 190)
             c.drawRoundRect(btn, rad, rad, p)
         }
+
+        // moving light sweep + touch ripple, clipped to the button shape
+        c.save()
+        path.reset()
+        path.addRoundRect(btn, rad, rad, Path.Direction.CW)
+        c.clipPath(path)
+        if (phase < 0.5f) {
+            val f = phase / 0.5f
+            val bw = btn.width() * 0.28f
+            val x0 = btn.left - bw + (btn.width() + bw * 2f) * f
+            p.style = Paint.Style.FILL
+            p.shader = LinearGradient(x0, 0f, x0 + bw, 0f,
+                intArrayOf(Color.argb(0, 255, 255, 255), Color.argb(80, 255, 245, 200), Color.argb(0, 255, 255, 255)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+            c.save()
+            c.skew(-0.35f, 0f)
+            c.translate(btn.height() * 0.35f * 0.5f, 0f)
+            c.drawRect(x0, btn.top, x0 + bw, btn.bottom, p)
+            c.restore()
+            p.shader = null
+        }
+        if (rpT < 1f) {
+            p.style = Paint.Style.FILL
+            p.color = Color.argb(((1f - rpT) * 110).toInt().coerceIn(0, 255), 190, 255, 220)
+            c.drawCircle(rpX, rpY, btn.width() * 0.75f * rpT, p)
+        }
+        c.restore()
 
         // gold borders
         p.style = Paint.Style.STROKE
@@ -258,6 +291,13 @@ class HomeView(ctx: Context, private val ui: Ui, private val onEnter: () -> Unit
             MotionEvent.ACTION_DOWN -> {
                 down = hit(e.x, e.y)
                 if (down) {
+                    rpX = e.x; rpY = e.y
+                    rpAnim?.cancel()
+                    rpAnim = ValueAnimator.ofFloat(0f, 1f).also { an ->
+                        an.duration = 520
+                        an.addUpdateListener { rpT = it.animatedValue as Float; invalidate() }
+                        an.start()
+                    }
                     performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                     playSoundEffect(SoundEffectConstants.CLICK)
                     animatePress(1f, 90)

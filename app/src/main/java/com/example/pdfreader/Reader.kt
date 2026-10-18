@@ -56,7 +56,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
     private var searchCount: TextView? = null
     private var propPanel: LinearLayout? = null
     private var propForId = -1L
-    private var scrubBox: LinearLayout? = null
+    private var scrubBox: View? = null
     private var scrubBar: android.widget.SeekBar? = null
     private var scrubTarget = 0
     private val scrubRun = Runnable { go(scrubTarget, false) }
@@ -123,6 +123,10 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         view.eraser = eraserOn
         view.eraserSizePt = st.eraserSize.toFloat()
         val m = act.marks.resumeFor(entry.id)
+        view.onMarkMoved = { pg, cy ->
+            val mm = act.marks.resumeFor(entry.id)
+            if (mm != null) act.marks.putResume(mm.copy(page = pg, cy = cy, time = System.currentTimeMillis()))
+        }
         view.markPage = m?.page ?: -1
         view.markCy = m?.cy ?: 0f
         view.onTap = { setToolsVisible(!toolsVisible) }
@@ -249,7 +253,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         eb.addView(delBtn)
         eb.visibility = if (editMode) View.VISIBLE else View.GONE
         editBar = eb
-        stack.addView(eb, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, 0, ui.dp(6)))
+        stack.addView(eb, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, 0, ui.dp(10)))
 
         val sbx = LinearLayout(act)
         sbx.orientation = LinearLayout.HORIZONTAL
@@ -266,7 +270,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
             override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                 if (!fromUser) return
                 scrubTarget = progress
-                pagePill?.text = "${progress + 1} / ${doc.pageCount}"
+                pagePill?.text = ltr("${progress + 1} / ${doc.pageCount}")
                 handler.removeCallbacks(scrubRun)
                 handler.postDelayed(scrubRun, 150)
                 if (toolsVisible) scheduleHide()
@@ -277,19 +281,22 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
                 go(sb?.progress ?: currentPage, false)
             }
         })
+        sbx.addView(sbar, ui.lp(panelW - ui.dp(112), ui.dp(40)))
         scrubBar = sbar
-        sbx.addView(sbar, ui.lp(0, ui.dp(40), 1f))
-        sbx.visibility = if (doc.pageCount > 1) View.VISIBLE else View.GONE
-        scrubBox = sbx
-        stack.addView(sbx, ui.lpm(panelW, ui.WRAP, 0f, 0, 0, 0, ui.dp(6)))
+        sbx.setPadding(ui.dp(10), ui.dp(2), ui.dp(6), ui.dp(2))
+        sbar.visibility = if (doc.pageCount > 1) View.VISIBLE else View.GONE
+        scrubBox = sbar
 
-        val pill = ui.txt("", 14f, C.white, true, true)
-        pill.background = ui.rounded(Color.argb(210, 13, 25, 21), 16, C.line)
-        pill.setPadding(ui.dp(16), ui.dp(6), ui.dp(16), ui.dp(6))
+        val pill = ui.txt("", 14f, C.gold, true, true)
+        pill.textDirection = View.TEXT_DIRECTION_LTR
+        pill.minWidth = ui.dp(70)
+        pill.setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(8))
         pill.setOnClickListener { showGoto() }
-        pill.visibility = if (st.showPageNum) View.VISIBLE else View.GONE
         pagePill = pill
-        stack.addView(pill, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, 0, ui.dp(8)))
+        sbx.addView(pill, ui.lp(ui.WRAP, ui.WRAP))
+        sbx.visibility = if (st.showPageNum || doc.pageCount > 1) View.VISIBLE else View.GONE
+        pill.visibility = if (st.showPageNum) View.VISIBLE else View.GONE
+        stack.addView(sbx, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, 0, ui.dp(10)))
         content.addView(stack, FrameLayout.LayoutParams(ui.WRAP, ui.WRAP, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
 
         root.addView(content, ui.lp(ui.MATCH, 0, 1f))
@@ -489,8 +496,10 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         }
     }
 
+    private fun ltr(s: String) = "\u202A" + s + "\u202C"
+
     private fun updateLabels() {
-        val s = "${currentPage + 1} / ${doc.pageCount}"
+        val s = ltr("${currentPage + 1} / ${doc.pageCount}")
         pagePill?.text = s
         scrubBar?.progress = currentPage
         titlePage?.text = ui.t("الصفحة ", "Page ") + s
@@ -580,7 +589,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
             pv?.markCy = v[1]
             pv?.invalidate()
             fillSidebar()
-            ui.toast(ui.t("تم حفظ علامة القراءة في الصفحة ${currentPage + 1}", "Reading mark saved on page ${currentPage + 1}"))
+            ui.toast(ui.t("تم حفظ العلامة في الصفحة ${currentPage + 1} — اسحب السهم الذهبي لتحريكها", "Mark saved on page ${currentPage + 1} — drag the gold arrow to move it"))
         }
         if (existing == null) {
             save()

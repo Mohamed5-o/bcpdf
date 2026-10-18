@@ -7,6 +7,7 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.RectF
 import android.view.MotionEvent
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
@@ -134,7 +135,14 @@ class Screens2(private val act: MainActivity) {
         val top = LinearLayout(act)
         top.orientation = LinearLayout.VERTICAL
         top.setPadding(ui.dp(12), ui.dp(2), ui.dp(12), ui.dp(6))
-        top.addView(field, ui.lp(ui.MATCH, ui.WRAP))
+        val frow = LinearLayout(act)
+        frow.orientation = LinearLayout.HORIZONTAL
+        frow.gravity = Gravity.CENTER_VERTICAL
+        frow.layoutDirection = ui.dir()
+        frow.addView(field, ui.lp(0, ui.WRAP, 1f))
+        val goBtn = ui.icon("search", C.accent, 48) {}
+        frow.addView(goBtn, ui.lpm(ui.WRAP, ui.WRAP, 0f, ui.dp(6), 0, 0, 0))
+        top.addView(frow, ui.lp(ui.MATCH, ui.WRAP))
         val chips = LinearLayout(act)
         chips.orientation = LinearLayout.HORIZONTAL
         chips.layoutDirection = ui.dir()
@@ -199,14 +207,18 @@ class Screens2(private val act: MainActivity) {
                 recentBox.addView(t, ui.lp(ui.MATCH, ui.WRAP))
             }
         }
-        field.setOnEditorActionListener { _, _, _ ->
+        val doSearch = {
             val q = field.text.toString().trim()
             if (q.isNotEmpty()) {
                 query = q
                 act.hideKeyboard(field)
                 runSearch(reader, q, hits, adapter, status, prog) { renderRecent() }
             }
-            true
+        }
+        goBtn.setOnClickListener { doSearch() }
+        field.setOnEditorActionListener { _, _, _ -> doSearch(); true }
+        field.setOnKeyListener { _, code, ev ->
+            if (code == android.view.KeyEvent.KEYCODE_ENTER && ev.action == android.view.KeyEvent.ACTION_UP) { doSearch(); true } else false
         }
         r.addView(recentBox, ui.lp(ui.MATCH, ui.WRAP))
         r.addView(lv, ui.lp(ui.MATCH, 0, 1f))
@@ -233,6 +245,7 @@ class Screens2(private val act: MainActivity) {
         val whole = st.searchWhole
         val ic = st.searchIgnoreCase
         val total = reader.doc.pageCount
+        var errMsg = ""
         searchThread = Thread {
             val n = try {
                 reader.textEngine.search(q, whole, ic, total, { token != searchToken },
@@ -246,12 +259,14 @@ class Screens2(private val act: MainActivity) {
                             }
                         }
                     })
-            } catch (e: Throwable) { -1 }
+            } catch (e: Throwable) { errMsg = e.javaClass.simpleName + ": " + (e.message ?: ""); -1 }
             act.runOnUiThread {
                 if (token != searchToken) return@runOnUiThread
                 prog.visibility = View.GONE
                 status.text = when {
-                    n < 0 -> ui.t("تعذر البحث في هذا الملف", "Could not search this file")
+                    n < 0 -> ui.t("تعذر البحث في هذا الملف", "Could not search this file") + "\n" + errMsg
+                    n == 0 && reader.textEngine.textPagesSeen == 0 && reader.textEngine.failedPages > 0 ->
+                        ui.t("تعذرت قراءة نص الملف", "Could not read the file text") + "\n" + reader.textEngine.lastError
                     n == 0 && reader.textEngine.textPagesSeen == 0 ->
                         ui.t("لا يوجد نص قابل للبحث في هذا الملف (قد يكون ممسوحًا ضوئيًا). التعرف على الحروف غير متاح.", "No searchable text in this file (it may be scanned). OCR is not available.")
                     n == 0 -> ui.t("لا توجد نتائج", "No results")

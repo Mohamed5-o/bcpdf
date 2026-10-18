@@ -124,13 +124,13 @@ class LibOps(private val act: MainActivity) {
         return e
     }
 
-    fun scanTree(tree: Uri) {
-        persist(tree)
+    fun scanTree(tree: Uri, silent: Boolean = false) {
+        if (!silent) persist(tree)
         Thread {
             var found = 0
             val rootId = DocumentsContract.getTreeDocumentId(tree)
             fun walk(docId: String, depth: Int) {
-                if (depth > 4 || found >= 500) return
+                if (depth > 12 || found >= 5000) return
                 val children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId)
                 try {
                     act.contentResolver.query(
@@ -145,7 +145,7 @@ class LibOps(private val act: MainActivity) {
                             rows.add(arrayOf(c.getString(0) ?: "", c.getString(1) ?: "", c.getString(2) ?: "", if (c.isNull(3)) "0" else c.getLong(3).toString()))
                         }
                         for (r in rows) {
-                            if (found >= 500) break
+                            if (found >= 5000) break
                             if (r[2] == DocumentsContract.Document.MIME_TYPE_DIR) {
                                 walk(r[0], depth + 1)
                             } else if (r[2] == "application/pdf" || r[1].lowercase().endsWith(".pdf")) {
@@ -162,13 +162,13 @@ class LibOps(private val act: MainActivity) {
             }
             walk(rootId, 0)
             act.runOnUiThread {
-                ui.toast(ui.t("تمت إضافة $found ملف من المجلد", "Added $found file(s) from the folder"))
-                act.refreshLibrary()
+                if (!silent) ui.toast(ui.t("تمت إضافة $found ملف من المجلد", "Added $found file(s) from the folder"))
+                if (!silent || found > 0) act.refreshLibrary()
             }
         }.start()
     }
 
-    /** Walks shared storage for PDFs (needs all-files access). Entries are linked, never copied. */
+    /** Deep scan: file walk of every storage volume + MediaStore index + previously granted folders. Entries are linked, never copied. */
     fun scanDevice(manual: Boolean) {
         if (!act.hasStorageAccess()) {
             if (manual) act.requestStorageAccess()
@@ -176,28 +176,55 @@ class LibOps(private val act: MainActivity) {
         }
         st0.lastScanMin = (System.currentTimeMillis() / 60000L).toInt()
         Thread {
-            val found = ArrayList<File>()
-            val skip = setOf("android", "cache", "thumbnails", "lost.dir", "tmp", "temp", "trash", ".trash")
+            val seen = HashSet<String>()
+            val found = ArrayList<Pair<String, File>>()
+            val skip = setOf("thumbnails", ".thumbnails", "lost.dir", ".trash", ".trashed", "trash", ".recyclebin", "\$recycle.bin")
+            fun add(f: File) {
+                val key = try { f.canonicalPath } catch (_: Exception) { f.absolutePath }
+                if (seen.add(key)) found.add(key to f)
+            }
             fun walk(d: File, depth: Int) {
-                if (depth > 9 || found.size >= 4000) return
-                val kids = d.listFiles() ?: return
+                if (depth > 16 || found.size >= 20000) return
+                val kids = try { d.listFiles() } catch (_: Exception) { null } ?: return
                 for (f in kids) {
                     val n = f.name
-                    if (n.startsWith(".")) continue
                     if (f.isDirectory) {
-                        if (n.lowercase() in skip) continue
+                        val ln = n.lowercase()
+                        if (ln in skip || ln.startsWith(".trash")) continue
+                        if (depth == 1 && ln == "data" && d.name.equals("android", true)) continue
                         walk(f, depth + 1)
-                    } else if (n.endsWith(".pdf", ignoreCase = true) && f.length() > 1024) found.add(f)
+                    } else if (n.endsWith(".pdf", ignoreCase = true) && f.length() > 100) add(f)
                 }
             }
-            try { walk(android.os.Environment.getExternalStorageDirectory(), 0) } catch (_: Exception) {}
-            var added = 0
-            for (f in found) {
-                val us = Uri.fromFile(f).toString()
-                if (store.findByUri(us) == null) {
-                    store.upsert(LibEntry(docIdOf(us), f.name, us, f.length(), 0, 0L, 0, false, false))
-                    added++
+            val roots = LinkedHashSet<File>()
+            try { roots.add(android.os.Environment.getExternalStorageDirectory()) } catch (_: Exception) {}
+            try { File("/storage").listFiles()?.forEach { if (it.name != "self" && it.name != "emulated" && it.isDirectory) roots.add(it) } } catch (_: Exception) {}
+            try { act.getExternalFilesDirs(null)?.forEach { d -> d?.absolutePath?.substringBefore("/Android/")?.let { p -> roots.add(File(p)) } } } catch (_: Exception) {}
+            for (r in roots) try { walk(r, 0) } catch (_: Exception) {}
+            // MediaStore index (finds files the walk could not list)
+            try {
+                val uri = android.provider.MediaStore.Files.getContentUri("external")
+                act.contentResolver.query(
+                    uri, arrayOf(android.provider.MediaStore.Files.FileColumns._ID, android.provider.MediaStore.Files.FileColumns.DATA, android.provider.MediaStore.Files.FileColumns.DISPLAY_NAME, android.provider.MediaStore.Files.FileColumns.SIZE),
+                    android.provider.MediaStore.Files.FileColumns.MIME_TYPE + "=? OR " + android.provider.MediaStore.Files.FileColumns.DISPLAY_NAME + " LIKE ?",
+                    arrayOf("application/pdf", "%.pdf"), null
+                )?.use { c ->
+                    while (c.moveToNext() && found.size < 20000) {
+                        val p = c.getString(1) ?: continue
+                        val f = File(p)
+                        if (f.isFile && f.canRead() && f.length() > 100) add(f)
+                    }
                 }
+            } catch (_: Throwable) {}
+            var added = 0
+            val have = HashSet<String>()
+            for (e in store.all()) have.add(e.name.lowercase() + "|" + e.size)
+            for ((_, f) in found) {
+                val us = Uri.fromFile(f).toString()
+                if (store.findByUri(us) != null) continue
+                if (!have.add(f.name.lowercase() + "|" + f.length())) continue
+                store.upsert(LibEntry(docIdOf(us), f.name, us, f.length(), 0, 0L, 0, false, false))
+                added++
             }
             var removed = 0
             val own = act.filesDir.absolutePath
@@ -210,9 +237,24 @@ class LibOps(private val act: MainActivity) {
                 }
             }
             act.runOnUiThread {
-                if (manual) ui.toast(ui.t("تم العثور على $added ملف جديد (${found.size} إجمالًا على الجهاز)", "Found $added new file(s) (${found.size} on the device)"))
                 if (added > 0 || removed > 0 || manual) act.refreshLibrary()
+                if (manual) {
+                    ui.menu(
+                        listOf(
+                            ui.t("إضافة ملفات يدويًا (مدير الملفات)", "Add files manually (file manager)") to { act.pickLinked() },
+                            ui.t("إضافة مجلد كامل", "Add a whole folder") to { act.pickFolder() },
+                            ui.t("تم", "Done") to {}
+                        ),
+                        ui.t("تم العثور على $added ملف جديد (${found.size} إجمالًا على الجهاز)", "Found $added new file(s) (${found.size} on the device)")
+                    )
+                }
             }
+            // re-scan folders granted earlier through the file manager
+            try {
+                for (p in act.contentResolver.persistedUriPermissions) {
+                    if (p.isReadPermission && DocumentsContract.isTreeUri(p.uri)) scanTree(p.uri, true)
+                }
+            } catch (_: Throwable) {}
         }.start()
     }
 
