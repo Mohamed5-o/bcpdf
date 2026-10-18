@@ -26,7 +26,7 @@ object C {
     val panel2 = Color.rgb(20, 38, 31)
     val gold = Color.rgb(232, 190, 75)
     val white = Color.rgb(244, 247, 245)
-    val muted = Color.rgb(142, 160, 152)
+    val muted = Color.rgb(178, 196, 188)
     val red = Color.rgb(232, 90, 90)
     val line = Color.argb(46, 255, 255, 255)
     var accent = Color.rgb(32, 190, 120)
@@ -107,7 +107,8 @@ class Ui(val ctx: Context, val st: Settings) {
     fun btn(label: String, fill: Int, color: Int, stroke: Int = 0, onClick: () -> Unit): TextView {
         val v = txt(label, 14f, color, true, true)
         v.background = rounded(fill, 14, stroke)
-        v.setPadding(dp(14), dp(11), dp(14), dp(11))
+        v.setPadding(dp(16), dp(11), dp(16), dp(11))
+        v.minimumHeight = dp(48)
         v.setOnClickListener { onClick() }
         pressFx(v)
         return v
@@ -118,9 +119,10 @@ class Ui(val ctx: Context, val st: Settings) {
 
     fun icon(kind: String, tint: Int = C.white, sizeDp: Int = 44, onClick: (() -> Unit)? = null): IconView {
         val v = IconView(ctx, kind, tint)
+        val sz = if (sizeDp < 48) 48 else sizeDp
         v.flipForRtl = rtl
-        v.layoutParams = LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp))
-        val pad = dp(sizeDp / 4)
+        v.layoutParams = LinearLayout.LayoutParams(dp(sz), dp(sz))
+        val pad = dp(sz / 4)
         v.setPadding(pad, pad, pad, pad)
         if (onClick != null) { v.setOnClickListener { onClick() }; pressFx(v, 0.88f) }
         return v
@@ -287,7 +289,8 @@ class Ui(val ctx: Context, val st: Settings) {
         val row = LinearLayout(ctx)
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.CENTER_VERTICAL
-        row.setPadding(dp(14), dp(12), dp(14), dp(12))
+        row.setPadding(dp(16), dp(12), dp(16), dp(12))
+        row.minimumHeight = dp(58)
         row.layoutDirection = dir()
         val col = LinearLayout(ctx)
         col.orientation = LinearLayout.VERTICAL
@@ -299,8 +302,29 @@ class Ui(val ctx: Context, val st: Settings) {
         return row
     }
 
+    private fun sectionIcon(title: String): String? = when {
+        title.contains("القراءة") || title.contains("Reading") -> "page"
+        title.contains("المظهر") || title.contains("Appearance") -> "drop"
+        title.contains("التعديل") || title.contains("Editing") -> "edit"
+        title.contains("البحث") || title.contains("Search") -> "search"
+        title.contains("الملفات") || title.contains("Files") -> "folder"
+        title.contains("معلومات") || title.contains("About") -> "info"
+        else -> null
+    }
+
     fun section(parent: LinearLayout, title: String, rows: List<View>) {
-        parent.addView(txt(title, 15f, C.accent, true), lpm(WRAP, WRAP, 0f, dp(6), dp(14), 0, dp(6)))
+        val head = LinearLayout(ctx)
+        head.orientation = LinearLayout.HORIZONTAL
+        head.gravity = Gravity.CENTER_VERTICAL
+        head.layoutDirection = dir()
+        val ik = sectionIcon(title)
+        if (ik != null) {
+            val ic = IconView(ctx, ik, C.gold)
+            ic.flipForRtl = rtl
+            head.addView(ic, LinearLayout.LayoutParams(dp(24), dp(24)))
+        }
+        head.addView(txt(title, 15f, C.gold, true), lpm(WRAP, WRAP, 0f, dp(8), 0, dp(8), 0))
+        parent.addView(head, lpm(MATCH, WRAP, 0f, dp(6), dp(20), dp(6), dp(8)))
         val c = card()
         rows.forEachIndexed { i, v ->
             if (i > 0) c.addView(divider())

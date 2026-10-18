@@ -376,9 +376,14 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
 
     private fun computeFit() {
         if (width <= 0 || height <= 0) return
-        val fp = min(width / pw, height / ph)
-        val fw = width / pw
-        fit = if (st.fitMode == "width") fw else fp
+        fit = fitFor(pw, ph)
+    }
+
+    private fun fitFor(pwx: Float, phx: Float): Float {
+        val pad = ui.dpf(6f)
+        val fw = (width - 2 * pad) / pwx
+        val fp = min(fw, (height - 2 * pad) / phx)
+        return if (st.fitMode == "width") fw else fp
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -552,6 +557,11 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         canvas.translate(dragOff, 0f)
         val pr = RectF(ox, oy, ox + pw * s, oy + ph * s)
 
+        for (k in 4 downTo 1) {
+            fillPaint.color = Color.argb(34, 0, 0, 0)
+            val g = ui.dpf(1.6f) * k
+            canvas.drawRoundRect(RectF(pr.left - g, pr.top - g * 0.6f, pr.right + g, pr.bottom + g * 1.4f), ui.dpf(3f), ui.dpf(3f), fillPaint)
+        }
         fillPaint.color = if (nightMode) Color.rgb(20, 22, 21) else Color.WHITE
         canvas.drawRect(pr, fillPaint)
         pagePaint.colorFilter = if (nightMode) nightFilter else null
@@ -1028,7 +1038,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         val nb = nbCache[n]
         val pwN = nb?.pw ?: pw
         val phN = nb?.ph ?: ph
-        val f = if (st.fitMode == "width") width / pwN else min(width / pwN, height / phN)
+        val f = fitFor(pwN, phN)
         val w = pwN * f
         val h = phN * f
         val l = xOff + (if (w <= width) (width - w) / 2f else 0f)
@@ -1057,7 +1067,9 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
                 val sz = d.pageSize(n)
                 var bmp: Bitmap? = null
                 if (sz != null) {
-                    val fN = if (fm == "width") w / sz.x else min(w / sz.x, h / sz.y)
+                    val pad = ui.dpf(6f)
+                    val fwN = (w - 2 * pad) / sz.x
+                    val fN = if (fm == "width") fwN else min(fwN, (h - 2 * pad) / sz.y)
                     bmp = d.renderFull(n, max(200, (sz.x * fN).toInt()), 4096)
                 }
                 ui2.post {

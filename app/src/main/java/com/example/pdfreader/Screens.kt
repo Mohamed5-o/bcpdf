@@ -179,6 +179,8 @@ class Screens(private val act: MainActivity) {
         val tempSize = dirSize(act.cacheDir)
         ui.section(
             col, ui.t("إعدادات الملفات", "Files"), listOf(
+                toggleRow(ui.t("فحص الجهاز تلقائيًا", "Scan the device automatically"), ui.t("عن ملفات PDF عند فتح المكتبة", "For PDFs when the library opens"), st.autoScan) { st.autoScan = it },
+                ui.settingRow(ui.t("فحص الجهاز الآن", "Scan the device now"), if (act.hasStorageAccess()) null else ui.t("يحتاج إذن الوصول للملفات", "Needs file access"), ui.chevron()) { act.scanDevice(true) },
                 ui.settingRow(ui.t("مجلد الحفظ الافتراضي", "Default save folder"), folderLabel, ui.chevron()) {
                     ui.menu(
                         listOf(

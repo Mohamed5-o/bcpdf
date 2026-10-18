@@ -46,6 +46,7 @@ class ShareProvider : ContentProvider() {
 class LibOps(private val act: MainActivity) {
     private val store get() = act.store
     private val ui get() = act.ui
+    private val st0 get() = act.st
 
     fun queryMeta(uri: Uri): Pair<String, Long> {
         var name = "document.pdf"
@@ -163,6 +164,54 @@ class LibOps(private val act: MainActivity) {
             act.runOnUiThread {
                 ui.toast(ui.t("تمت إضافة $found ملف من المجلد", "Added $found file(s) from the folder"))
                 act.refreshLibrary()
+            }
+        }.start()
+    }
+
+    /** Walks shared storage for PDFs (needs all-files access). Entries are linked, never copied. */
+    fun scanDevice(manual: Boolean) {
+        if (!act.hasStorageAccess()) {
+            if (manual) act.requestStorageAccess()
+            return
+        }
+        st0.lastScanMin = (System.currentTimeMillis() / 60000L).toInt()
+        Thread {
+            val found = ArrayList<File>()
+            val skip = setOf("android", "cache", "thumbnails", "lost.dir", "tmp", "temp", "trash", ".trash")
+            fun walk(d: File, depth: Int) {
+                if (depth > 9 || found.size >= 4000) return
+                val kids = d.listFiles() ?: return
+                for (f in kids) {
+                    val n = f.name
+                    if (n.startsWith(".")) continue
+                    if (f.isDirectory) {
+                        if (n.lowercase() in skip) continue
+                        walk(f, depth + 1)
+                    } else if (n.endsWith(".pdf", ignoreCase = true) && f.length() > 1024) found.add(f)
+                }
+            }
+            try { walk(android.os.Environment.getExternalStorageDirectory(), 0) } catch (_: Exception) {}
+            var added = 0
+            for (f in found) {
+                val us = Uri.fromFile(f).toString()
+                if (store.findByUri(us) == null) {
+                    store.upsert(LibEntry(docIdOf(us), f.name, us, f.length(), 0, 0L, 0, false, false))
+                    added++
+                }
+            }
+            var removed = 0
+            val own = act.filesDir.absolutePath
+            for (e in ArrayList(store.all())) {
+                val u = Uri.parse(e.uri)
+                val path = u.path ?: continue
+                if (u.scheme == "file" && !e.internal && !path.startsWith(own) && !File(path).exists()) {
+                    store.remove(e.id)
+                    removed++
+                }
+            }
+            act.runOnUiThread {
+                if (manual) ui.toast(ui.t("تم العثور على $added ملف جديد (${found.size} إجمالًا على الجهاز)", "Found $added new file(s) (${found.size} on the device)"))
+                if (added > 0 || removed > 0 || manual) act.refreshLibrary()
             }
         }.start()
     }

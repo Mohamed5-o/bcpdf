@@ -82,6 +82,9 @@ class Settings(ctx: Context) {
 
     // Files
     var defSaveFolder by str("defSaveFolder", "")
+    var autoScan by bool("autoScan", true)          // scan the device for PDFs automatically
+    var askedStorage by bool("askedStorage", false)
+    var lastScanMin by int("lastScanMin", 0)
     var sortOrder by str("sortOrder", "opened")    // name | size | opened
 
     val arabic: Boolean get() = language == "ar"

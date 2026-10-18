@@ -54,6 +54,12 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
     private var delBtn: IconView? = null
     private var editSelBtn: IconView? = null
     private var searchCount: TextView? = null
+    private var propPanel: LinearLayout? = null
+    private var propForId = -1L
+    private var scrubBox: LinearLayout? = null
+    private var scrubBar: android.widget.SeekBar? = null
+    private var scrubTarget = 0
+    private val scrubRun = Runnable { go(scrubTarget, false) }
 
     private val hideRunnable = Runnable { if (!keepVisible()) setToolsVisible(false) }
     private val draftRunnable = Runnable { writeDraft() }
@@ -215,6 +221,18 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         eraserPanel = ep
         stack.addView(ep, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, 0, ui.dp(6)))
 
+        val screenW = act.resources.displayMetrics.widthPixels
+        val panelW = minOf(ui.dp(330), screenW - ui.dp(24))
+        val pp = LinearLayout(act)
+        pp.orientation = LinearLayout.VERTICAL
+        pp.layoutDirection = ui.dir()
+        pp.background = ui.rounded(Color.argb(246, 13, 25, 21), 18, C.accentSoft(170))
+        pp.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8))
+        pp.visibility = View.GONE
+        propPanel = pp
+        propForId = -1L
+        stack.addView(pp, ui.lpm(panelW, ui.WRAP, 0f, 0, 0, 0, ui.dp(6)))
+
         val eb = LinearLayout(act)
         eb.orientation = LinearLayout.HORIZONTAL
         eb.gravity = Gravity.CENTER
@@ -224,7 +242,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         undoBtn = ui.icon("undo", C.white, 44) { if (edit.undo()) { view.deselect(false); view.itemsChanged() } }
         redoBtn = ui.icon("redo", C.white, 44) { if (edit.redo()) { view.deselect(false); view.itemsChanged() } }
         delBtn = ui.icon("trash", C.red, 44) { view.selectedItem()?.let { askDelete(it) } }
-        editSelBtn = ui.icon("edit", C.gold, 44) { (view.selectedItem() as? TextItem)?.let { editTextItem(it) } }
+        editSelBtn = ui.icon("edit", C.white, 44) { (view.selectedItem() as? TextItem)?.let { editTextItem(it) } }
         eb.addView(undoBtn)
         eb.addView(redoBtn)
         eb.addView(editSelBtn)
@@ -232,6 +250,38 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         eb.visibility = if (editMode) View.VISIBLE else View.GONE
         editBar = eb
         stack.addView(eb, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, 0, ui.dp(6)))
+
+        val sbx = LinearLayout(act)
+        sbx.orientation = LinearLayout.HORIZONTAL
+        sbx.gravity = Gravity.CENTER_VERTICAL
+        sbx.layoutDirection = View.LAYOUT_DIRECTION_LTR
+        sbx.background = ui.rounded(Color.argb(228, 13, 25, 21), 22, C.line)
+        sbx.setPadding(ui.dp(14), ui.dp(4), ui.dp(14), ui.dp(4))
+        val sbar = android.widget.SeekBar(act)
+        sbar.max = maxOf(1, doc.pageCount - 1)
+        sbar.progress = currentPage
+        sbar.progressTintList = android.content.res.ColorStateList.valueOf(C.accent)
+        sbar.thumbTintList = android.content.res.ColorStateList.valueOf(C.gold)
+        sbar.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                scrubTarget = progress
+                pagePill?.text = "${progress + 1} / ${doc.pageCount}"
+                handler.removeCallbacks(scrubRun)
+                handler.postDelayed(scrubRun, 150)
+                if (toolsVisible) scheduleHide()
+            }
+            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {
+                handler.removeCallbacks(scrubRun)
+                go(sb?.progress ?: currentPage, false)
+            }
+        })
+        scrubBar = sbar
+        sbx.addView(sbar, ui.lp(0, ui.dp(40), 1f))
+        sbx.visibility = if (doc.pageCount > 1) View.VISIBLE else View.GONE
+        scrubBox = sbx
+        stack.addView(sbx, ui.lpm(panelW, ui.WRAP, 0f, 0, 0, 0, ui.dp(6)))
 
         val pill = ui.txt("", 14f, C.white, true, true)
         pill.background = ui.rounded(Color.argb(210, 13, 25, 21), 16, C.line)
@@ -278,7 +328,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
             titlePage = pg
             col.addView(pg)
             top.addView(col, ui.lp(0, ui.WRAP, 1f))
-            top.addView(ui.icon("gear", C.gold, 46) { act.showSettings() })
+            top.addView(ui.icon("gear", C.white, 46) { act.showSettings() })
         } else {
             top.addView(ui.icon("close", C.white, 46) { setEditMode(false) })
             top.addView(ui.txt(ui.t("وضع التعديل", "Edit mode"), 18f, C.white, true, true), ui.lp(0, ui.WRAP, 1f))
@@ -305,12 +355,12 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         bar.setPadding(ui.dp(3), ui.dp(4), ui.dp(3), ui.dp(4))
         val list = LinearLayout(act)
         list.orientation = LinearLayout.VERTICAL
-        list.addView(sideBtn("edit", "edit", editMode, C.gold) { setEditMode(!editMode) })
-        list.addView(sideBtn("text", "text", false, C.gold) { toolText() })
-        list.addView(sideBtn("image", "image", false, C.gold) { toolImage() })
-        list.addView(sideBtn("sign", "sign", false, C.gold) { toolSign() })
-        list.addView(sideBtn("drop", "wm", false, C.gold) { toolWatermark() })
-        list.addView(sideBtn("eraser", "eraser", eraserOn, C.gold) { toolEraser() })
+        list.addView(sideBtn("edit", "edit", editMode, C.white) { setEditMode(!editMode) })
+        list.addView(sideBtn("text", "text", false, C.white) { toolText() })
+        list.addView(sideBtn("image", "image", false, C.white) { toolImage() })
+        list.addView(sideBtn("sign", "sign", false, C.white) { toolSign() })
+        list.addView(sideBtn("drop", "wm", false, C.white) { toolWatermark() })
+        list.addView(sideBtn("eraser", "eraser", eraserOn, C.white) { toolEraser() })
         list.addView(sideBtn("search", "search", false, C.white) { toolSearch() })
         list.addView(sideBtn("goto", "goto", false, C.white) { showGoto() })
         val hasMark = act.marks.resumeFor(entry.id) != null
@@ -344,11 +394,105 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         redoBtn?.alpha = if (edit.canRedo()) 1f else 0.35f
         delBtn?.alpha = if (sel != null) 1f else 0.35f
         editSelBtn?.alpha = if (sel is TextItem) 1f else 0.35f
+        refreshPropPanel()
+    }
+
+    private fun propSeek(max: Int, value: Int, onChange: (Int) -> Unit): android.widget.SeekBar {
+        val sk = android.widget.SeekBar(act)
+        sk.max = max
+        sk.progress = value.coerceIn(0, max)
+        sk.progressTintList = android.content.res.ColorStateList.valueOf(C.accent)
+        sk.thumbTintList = android.content.res.ColorStateList.valueOf(C.accent)
+        sk.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) { onChange(progress); pv?.invalidate() }
+            }
+            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) { edit.checkpoint() }
+            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) { edit.changed() }
+        })
+        return sk
+    }
+
+    private fun propRow(label: String, bar: View): LinearLayout {
+        val r = LinearLayout(act)
+        r.orientation = LinearLayout.HORIZONTAL
+        r.gravity = Gravity.CENTER_VERTICAL
+        r.layoutDirection = ui.dir()
+        r.addView(ui.txt(label, 13f, C.muted), ui.lp(ui.dp(74), ui.WRAP))
+        r.addView(bar, ui.lp(0, ui.dp(40), 1f))
+        return r
+    }
+
+    private fun refreshPropPanel() {
+        val pp = propPanel ?: return
+        val sel = pv?.selectedItem()
+        if (!editMode || eraserOn || sel == null) {
+            pp.visibility = View.GONE
+            propForId = -1L
+            return
+        }
+        pp.visibility = View.VISIBLE
+        if (sel.id == propForId) return
+        propForId = sel.id
+        pp.removeAllViews()
+        if (sel is TextItem) {
+            pp.addView(propRow(ui.t("الحجم", "Size"), propSeek(114, (sel.size - 6f).toInt()) { sel.size = (it + 6).toFloat(); sel.remeasure() }))
+            pp.addView(propRow(ui.t("الشفافية", "Opacity"), propSeek(90, sel.alphaPct - 10) { sel.alphaPct = it + 10; sel.remeasure() }))
+        } else if (sel is ImageItem) {
+            val maxW = ((pv?.pageSizePt()?.x ?: 600f) * 1.2f).toInt()
+            pp.addView(propRow(ui.t("الحجم", "Size"), propSeek(maxW, sel.w.toInt()) { sel.setWidth(maxOf(20, it).toFloat()) }))
+        }
+        pp.addView(propRow(ui.t("الدوران", "Rotate"), propSeek(360, (sel.rot + 180f).toInt()) {
+            var r = (it - 180).toFloat()
+            if (kotlin.math.abs(r) < 3f) r = 0f
+            sel.rot = r
+        }))
+        if (sel is TextItem) {
+            val sw = LinearLayout(act)
+            sw.orientation = LinearLayout.HORIZONTAL
+            sw.gravity = Gravity.CENTER_VERTICAL
+            sw.layoutDirection = ui.dir()
+            val cols = intArrayOf(0xFF000000.toInt(), 0xFFFFFFFF.toInt(), 0xFF2F6BFF.toInt(), 0xFF20BE78.toInt(), 0xFFE85A5A.toInt(), 0xFFE8BE4B.toInt(), 0xFF808080.toInt())
+            for (col in cols) {
+                val dot = View(act)
+                val g = android.graphics.drawable.GradientDrawable()
+                g.shape = android.graphics.drawable.GradientDrawable.OVAL
+                g.setColor(col)
+                g.setStroke(ui.dp(if ((sel.color and 0xFFFFFF) == (col and 0xFFFFFF)) 3 else 1), if ((sel.color and 0xFFFFFF) == (col and 0xFFFFFF)) C.accent else C.line)
+                dot.background = g
+                dot.setOnClickListener {
+                    edit.checkpoint()
+                    sel.color = col
+                    sel.remeasure()
+                    edit.changed()
+                    pv?.invalidate()
+                    propForId = -1L
+                    refreshPropPanel()
+                }
+                sw.addView(dot, ui.lpm(ui.dp(30), ui.dp(30), 0f, ui.dp(4), ui.dp(6), ui.dp(4), ui.dp(2)))
+            }
+            val b = ui.txt("B", 15f, if (sel.bold) C.accent else C.white, true, true)
+            b.background = ui.rounded(if (sel.bold) C.accentDark() else C.panel2, 10, if (sel.bold) C.accent else C.line)
+            b.minimumWidth = ui.dp(40)
+            b.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6))
+            b.setOnClickListener {
+                edit.checkpoint()
+                sel.bold = !sel.bold
+                sel.remeasure()
+                edit.changed()
+                pv?.invalidate()
+                propForId = -1L
+                refreshPropPanel()
+            }
+            sw.addView(b, ui.lpm(ui.WRAP, ui.WRAP, 0f, ui.dp(8), 0, 0, 0))
+            pp.addView(sw, ui.lp(ui.MATCH, ui.WRAP))
+        }
     }
 
     private fun updateLabels() {
         val s = "${currentPage + 1} / ${doc.pageCount}"
         pagePill?.text = s
+        scrubBar?.progress = currentPage
         titlePage?.text = ui.t("الصفحة ", "Page ") + s
     }
 
@@ -358,8 +502,21 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
 
     private fun setToolsVisible(v: Boolean) {
         toolsVisible = v || keepVisible()
-        sideHolder?.visibility = if (toolsVisible) View.VISIBLE else View.GONE
+        fadeTo(sideHolder, toolsVisible)
+        fadeTo(scrubBox, toolsVisible && doc.pageCount > 1)
         if (toolsVisible) scheduleHide()
+    }
+
+    private fun fadeTo(v: View?, show: Boolean) {
+        if (v == null) return
+        v.animate().cancel()
+        v.tag = show
+        if (show) {
+            if (v.visibility != View.VISIBLE) { v.alpha = 0f; v.visibility = View.VISIBLE }
+            v.animate().alpha(1f).setDuration(180).start()
+        } else if (v.visibility == View.VISIBLE) {
+            v.animate().alpha(0f).setDuration(240).withEndAction { if (v.tag == false) v.visibility = View.GONE }.start()
+        }
     }
 
     private fun scheduleHide() {

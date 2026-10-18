@@ -126,7 +126,7 @@ class LibraryScreen(private val act: MainActivity) {
         header.gravity = Gravity.CENTER_VERTICAL
         header.layoutDirection = View.LAYOUT_DIRECTION_LTR
         header.setPadding(ui.dp(6), ui.dp(4), ui.dp(6), ui.dp(2))
-        header.addView(ui.icon("gear", C.gold, 48) { act.showSettings() })
+        header.addView(ui.icon("gear", C.white, 48) { act.showSettings() })
         val titleBox = LinearLayout(act)
         titleBox.orientation = LinearLayout.HORIZONTAL
         titleBox.gravity = Gravity.CENTER
@@ -200,7 +200,8 @@ class LibraryScreen(private val act: MainActivity) {
         empty.gravity = Gravity.CENTER
         empty.addView(ui.icon("library", C.muted, 72))
         empty.addView(ui.txt(ui.t("المكتبة فارغة", "Your library is empty"), 17f, C.white, true, true), ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, ui.dp(8), 0, ui.dp(4)))
-        empty.addView(ui.txt(ui.t("استورد ملفات PDF أو افتح ملفًا لتبدأ", "Import PDFs or open a file to start"), 13f, C.muted, false, true))
+        empty.addView(ui.txt(ui.t("اسمح للتطبيق بالبحث عن ملفاتك أو استورد ملفًا لتبدأ", "Let the app find your PDFs, or import one to start"), 13f, C.muted, false, true))
+        empty.addView(ui.primaryBtn(ui.t("البحث عن ملفات PDF في الجهاز", "Find PDFs on this device")) { act.scanDevice(true) }, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, ui.dp(16), 0, 0))
         emptyView = empty
         frame.addView(empty, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
         root.addView(frame, ui.lp(ui.MATCH, 0, 1f))
@@ -244,6 +245,7 @@ class LibraryScreen(private val act: MainActivity) {
     private fun showImportMenu() {
         ui.menu(
             listOf(
+                ui.t("فحص الجهاز عن ملفات PDF", "Scan the device for PDFs") to { act.scanDevice(true) },
                 ui.t("استيراد ملفات (نسخ داخل التطبيق)", "Import files (copy into the app)") to { act.pickImport() },
                 ui.t("فتح ملف دون نسخه", "Open a file without copying") to { act.pickLinked() },
                 ui.t("إضافة مجلد (البحث عن ملفات PDF)", "Add a folder (scan for PDFs)") to { act.pickFolder() }

@@ -128,7 +128,7 @@ class MainActivity : Activity() {
         super.onConfigurationChanged(newConfig)
         val c = current ?: return
         if (c.key == "reader") reader?.detachViews()
-        show(c)
+        show(c, false)
     }
 
     @Deprecated("Deprecated in Java")
@@ -151,12 +151,17 @@ class MainActivity : Activity() {
         } else View.SYSTEM_UI_FLAG_VISIBLE
     }
 
-    private fun show(n: Nav) {
+    private fun show(n: Nav, animate: Boolean = true) {
         content.removeAllViews()
         val v = n.build()
         v.layoutDirection = ui.dir()
         content.layoutDirection = ui.dir()
         content.addView(v, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        if (animate && n.key != "home") {
+            v.alpha = 0f
+            v.translationY = ui.dpf(14f)
+            v.animate().alpha(1f).translationY(0f).setDuration(220).setInterpolator(android.view.animation.DecelerateInterpolator(1.4f)).start()
+        }
         applyBars(n.key)
     }
 
@@ -183,6 +188,73 @@ class MainActivity : Activity() {
         show(n)
     }
 
+    // ───────────────────────── device files access ─────────────────────────
+
+    fun hasStorageAccess(): Boolean =
+        if (Build.VERSION.SDK_INT >= 30) android.os.Environment.isExternalStorageManager()
+        else checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private var scanAfterGrant = false
+
+    fun requestStorageAccess() {
+        scanAfterGrant = true
+        if (Build.VERSION.SDK_INT >= 30) {
+            try {
+                startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (_: Exception) {
+                try { startActivity(Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) } catch (_: Exception) {
+                    ui.toast(ui.t("افتح إعدادات التطبيق ثم الأذونات ثم الملفات", "Open app settings → permissions → files"))
+                }
+            }
+        } else {
+            requestPermissions(arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE), 77)
+        }
+    }
+
+    fun scanDevice(manual: Boolean) = ops.scanDevice(manual)
+
+    override fun onResume() {
+        super.onResume()
+        if (scanAfterGrant && hasStorageAccess()) {
+            scanAfterGrant = false
+            ops.scanDevice(true)
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 77 && grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            scanAfterGrant = false
+            ops.scanDevice(true)
+        }
+    }
+
+    private fun maybeScanOnLibrary() {
+        if (hasStorageAccess()) {
+            val nowMin = (System.currentTimeMillis() / 60000L).toInt()
+            if (st.autoScan && nowMin - st.lastScanMin > 10) ops.scanDevice(false)
+            return
+        }
+        if (st.askedStorage) return
+        st.askedStorage = true
+        content.post {
+            ui.dialog { card, d ->
+                card.addView(ui.txt(ui.t("عرض ملفات PDF الموجودة على جهازك", "Show the PDFs on your device"), 17f, C.gold, true, true))
+                card.addView(
+                    ui.txt(
+                        ui.t(
+                            "للبحث عن ملفات PDF في الجهاز وإظهارها هنا مباشرة، يحتاج التطبيق إذن الوصول إلى الملفات. لا يتم نسخ أو رفع أي ملف، ويمكنك سحب الإذن من إعدادات الهاتف في أي وقت.",
+                            "To find and list the PDFs on your device, the app needs file access. Nothing is copied or uploaded, and you can revoke it in phone settings."
+                        ), 14f, C.white, false, true
+                    ), ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(10), 0, ui.dp(14))
+                )
+                card.addView(ui.primaryBtn(ui.t("السماح", "Allow")) { d.dismiss(); requestStorageAccess() }, ui.lp(ui.MATCH, ui.WRAP))
+                card.addView(ui.ghostBtn(ui.t("لاحقًا", "Later")) { d.dismiss() }, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(8), 0, 0))
+            }
+        }
+    }
+
     fun showLibrary() {
         stack.clear()
         val lib = LibraryScreen(this)
@@ -192,6 +264,7 @@ class MainActivity : Activity() {
         val n = Nav("library") { lib.build() }
         current = n
         show(n)
+        maybeScanOnLibrary()
     }
 
     fun refreshLibrary() {
