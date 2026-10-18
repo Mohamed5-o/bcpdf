@@ -57,6 +57,25 @@ object Saver {
                 val bh = box.height
                 PDPageContentStream(doc, page, PDPageContentStream.AppendMode.APPEND, true, true).use { cs ->
                     for (item in list) {
+                        if (item is HighlightItem) {
+                            val gs = com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState()
+                            gs.setNonStrokingAlphaConstant(0.4f)
+                            cs.saveGraphicsState()
+                            cs.setGraphicsStateParameters(gs)
+                            cs.setNonStrokingColor(Color.red(item.color), Color.green(item.color), Color.blue(item.color))
+                            for (r in item.rects) {
+                                val a = toUser(rotation, r.left, r.top)
+                                val b = toUser(rotation, r.right, r.bottom)
+                                val x1 = box.lowerLeftX + Math.min(a[0], b[0]) * bw
+                                val x2 = box.lowerLeftX + Math.max(a[0], b[0]) * bw
+                                val y1 = box.lowerLeftY + Math.min(a[1], b[1]) * bh
+                                val y2 = box.lowerLeftY + Math.max(a[1], b[1]) * bh
+                                cs.addRect(x1, y1, x2 - x1, y2 - y1)
+                                cs.fill()
+                            }
+                            cs.restoreGraphicsState()
+                            continue
+                        }
                         val u = toUser(rotation, item.nx, item.ny)
                         val cx = box.lowerLeftX + u[0] * bw
                         val cy = box.lowerLeftY + u[1] * bh

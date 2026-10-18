@@ -220,7 +220,7 @@ class Ui(val ctx: Context, val st: Settings) {
     }
 
     /** Modal card dialog. [build] fills the card; use the Dialog to dismiss. */
-    fun dialog(cancelable: Boolean = true, full: Boolean = false, build: (LinearLayout, Dialog) -> Unit): Dialog {
+    fun dialog(cancelable: Boolean = true, full: Boolean = false, dim: Float = 0.72f, bottom: Boolean = false, build: (LinearLayout, Dialog) -> Unit): Dialog {
         val d = Dialog(ctx)
         d.requestWindowFeature(Window.FEATURE_NO_TITLE)
         val card = LinearLayout(ctx)
@@ -241,7 +241,8 @@ class Ui(val ctx: Context, val st: Settings) {
             val sw = (ctx.resources.displayMetrics.widthPixels * (if (full) 0.97f else 0.94f)).toInt()
             val hh = if (full) (ctx.resources.displayMetrics.heightPixels * 0.9f).toInt() else WRAP
             w.setLayout(if (sw > maxW) maxW else sw, hh)
-            w.setDimAmount(0.72f)
+            w.setDimAmount(dim)
+            if (bottom) { w.setGravity(Gravity.BOTTOM); w.attributes = w.attributes.also { it.y = dp(8) } }
             w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
             w.setWindowAnimations(android.R.style.Animation_Dialog)
         }

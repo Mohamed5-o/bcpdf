@@ -68,6 +68,18 @@ class Screens2(private val act: MainActivity) {
 
         val n = reader.edit.items.size
         col.addView(ui.txt(ui.t("عدد العناصر المضافة: $n", "Items to apply: $n"), 13f, C.muted, false, true), ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(10), 0, 0))
+        if (reader.annots.isNotEmpty()) {
+            var on = reader.bakeHl
+            val t = ui.txt("", 14f, C.white, true, true)
+            fun paintT() {
+                t.text = (if (on) "✔  " else "○  ") + ui.t("تضمين التظليل والعلامات داخل الملف (${reader.annots.size})", "Include highlights inside the file (${reader.annots.size})")
+                t.background = ui.rounded(if (on) C.accentDark() else C.panel2, 12, if (on) C.accent else C.line)
+            }
+            t.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12))
+            t.setOnClickListener { on = !on; reader.bakeHl = on; paintT() }
+            paintT()
+            col.addView(t, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(10), 0, 0))
+        }
         col.addView(ui.primaryBtn(ui.t("حفظ", "Save")) {
             val nm = nameField.text.toString().trim().ifEmpty { "$base - edited" }
             if (overwrite) {
@@ -108,9 +120,8 @@ class Screens2(private val act: MainActivity) {
 
     fun search(reader: ReaderScreen): View {
         val r = ui.screenRoot()
-        r.addView(ui.header(ui.t("البحث في الملف", "Search in file"), { cancelSearch(); act.goBack() }))
-
         val hits = ArrayList<SearchHit>()
+        hits.addAll(reader.lastResults)
         var query = reader.lastQuery
         val field = ui.field(ui.t("اكتب كلمة أو جملة", "Type a word or phrase"), query)
         field.setSingleLine(true)
@@ -121,12 +132,12 @@ class Screens2(private val act: MainActivity) {
 
         fun chip(label: String, on: Boolean, set: (Boolean) -> Unit): TextView {
             var v = on
-            val t = ui.txt(label, 13f, C.white, true, true)
+            val t = ui.txt(label, 12f, C.white, true, true)
             fun paint() {
                 t.background = ui.rounded(if (v) C.accentDark() else C.panel2, 18, if (v) C.accent else C.line)
                 t.setTextColor(if (v) C.accent else C.white)
             }
-            t.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8))
+            t.setPadding(ui.dp(12), ui.dp(5), ui.dp(12), ui.dp(5))
             t.setOnClickListener { v = !v; set(v); paint() }
             paint()
             return t
@@ -134,22 +145,25 @@ class Screens2(private val act: MainActivity) {
 
         val top = LinearLayout(act)
         top.orientation = LinearLayout.VERTICAL
-        top.setPadding(ui.dp(12), ui.dp(2), ui.dp(12), ui.dp(6))
+        top.setPadding(ui.dp(6), ui.dp(4), ui.dp(10), ui.dp(4))
+        field.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(8))
+        field.textSize = 15f
         val frow = LinearLayout(act)
         frow.orientation = LinearLayout.HORIZONTAL
         frow.gravity = Gravity.CENTER_VERTICAL
         frow.layoutDirection = ui.dir()
+        frow.addView(ui.icon("back", C.white, 48) { cancelSearch(); act.goBack() }, ui.lp(ui.dp(48), ui.dp(48)))
         frow.addView(field, ui.lp(0, ui.WRAP, 1f))
         val goBtn = ui.icon("search", C.accent, 48) {}
-        frow.addView(goBtn, ui.lpm(ui.WRAP, ui.WRAP, 0f, ui.dp(6), 0, 0, 0))
+        frow.addView(goBtn, ui.lpm(ui.dp(48), ui.dp(48), 0f, ui.dp(2), 0, 0, 0))
         top.addView(frow, ui.lp(ui.MATCH, ui.WRAP))
         val chips = LinearLayout(act)
         chips.orientation = LinearLayout.HORIZONTAL
         chips.layoutDirection = ui.dir()
         chips.addView(chip(ui.t("الكلمة كاملة", "Whole word"), st.searchWhole) { st.searchWhole = it })
         chips.addView(chip(ui.t("تجاهل حالة الأحرف", "Ignore case"), st.searchIgnoreCase) { st.searchIgnoreCase = it }, ui.lpm(ui.WRAP, ui.WRAP, 0f, ui.dp(8), 0, ui.dp(8), 0))
-        top.addView(chips, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(8), 0, 0))
-        top.addView(prog, ui.lpm(ui.MATCH, ui.dp(6), 0f, 0, ui.dp(8), 0, 0))
+        top.addView(chips, ui.lpm(ui.MATCH, ui.WRAP, 0f, ui.dp(48), ui.dp(6), 0, 0))
+        top.addView(prog, ui.lpm(ui.MATCH, ui.dp(4), 0f, 0, ui.dp(4), 0, 0))
         top.addView(status, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(4), 0, 0))
         r.addView(top, ui.lp(ui.MATCH, ui.WRAP))
 
@@ -223,6 +237,7 @@ class Screens2(private val act: MainActivity) {
         r.addView(recentBox, ui.lp(ui.MATCH, ui.WRAP))
         r.addView(lv, ui.lp(ui.MATCH, 0, 1f))
         renderRecent()
+        if (hits.isNotEmpty()) status.text = ui.t("${hits.size} نتيجة (آخر بحث)", "${hits.size} results (last search)")
         field.requestFocus()
         field.postDelayed({ act.showKeyboard(field) }, 250)
         return r
@@ -263,6 +278,8 @@ class Screens2(private val act: MainActivity) {
             act.runOnUiThread {
                 if (token != searchToken) return@runOnUiThread
                 prog.visibility = View.GONE
+                reader.lastResults = ArrayList(hits)
+                reader.lastQuery = q
                 status.text = when {
                     n < 0 -> ui.t("تعذر البحث في هذا الملف", "Could not search this file") + "\n" + errMsg
                     n == 0 && reader.textEngine.textPagesSeen == 0 && reader.textEngine.failedPages > 0 ->

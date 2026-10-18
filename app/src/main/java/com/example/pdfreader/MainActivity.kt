@@ -24,6 +24,8 @@ class MainActivity : Activity() {
     lateinit var store: LibraryStore
     lateinit var marks: MarkStore
     lateinit var drafts: DraftStore
+    lateinit var annots: AnnotStore
+    lateinit var profiles: ProfileStore
     lateinit var dialogs: Dialogs
     lateinit var thumbs: ThumbLoader
     lateinit var ops: LibOps
@@ -64,6 +66,8 @@ class MainActivity : Activity() {
         store = LibraryStore(this)
         marks = MarkStore(this)
         drafts = DraftStore(this)
+        annots = AnnotStore(this)
+        profiles = ProfileStore(this)
         dialogs = Dialogs(ui, st)
         thumbs = ThumbLoader(this)
         ops = LibOps(this)
@@ -480,6 +484,17 @@ class MainActivity : Activity() {
         input.use { i -> FileOutputStream(dst).use { o -> i.copyTo(o) } }
     }
 
+    /** Adds a PDF produced by the page tools to the library. */
+    fun addGeneratedPdf(tmp: File, name: String, pages: Int): LibEntry {
+        val dst = uniqueLibFile(name)
+        tmp.inputStream().use { i -> FileOutputStream(dst).use { o -> i.copyTo(o) } }
+        tmp.delete()
+        val us = Uri.fromFile(dst).toString()
+        val e = LibEntry(docIdOf(us), dst.name, us, dst.length(), pages, System.currentTimeMillis(), 0, true, true)
+        store.upsert(e)
+        return e
+    }
+
     private fun uniqueLibFile(name: String): File {
         var base = name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
         if (!base.lowercase().endsWith(".pdf")) base += ".pdf"
@@ -498,6 +513,8 @@ class MainActivity : Activity() {
             card.addView(t)
         }
         val items = ArrayList(r.edit.items)
+        val baked = r.bakeHl && r.annots.isNotEmpty()
+        if (baked) items.addAll(r.annots.map { it.copyItem() })
         val pages = r.doc.pageCount
         val entry = r.entry
         val saveDir = File(cacheDir, "save")
@@ -552,6 +569,7 @@ class MainActivity : Activity() {
                     store.update(entry)
                     thumbs.forget(entry.id)
                     r.onSaved(true)
+                    if (baked) r.afterBaked()
                     ui.toast(ui.t("تم تعديل الملف الأصلي بعد التحقق منه", "Original updated and verified"))
                     goBack()
                 } else {

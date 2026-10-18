@@ -60,10 +60,31 @@ class Screens(private val act: MainActivity) {
                 ),
                 choiceRow(
                     ui.t("طريقة التصفح", "Reading layout"),
-                    if (st.readMode == "c") ui.t("كل الصفحات تحت بعضها", "All pages stacked") else ui.t("صفحة بصفحة (سحب جانبي)", "Page by page (side swipe)"),
+                    when (st.readMode) {
+                        "c" -> ui.t("كل الصفحات تحت بعضها", "All pages stacked")
+                        "v" -> ui.t("صفحة بصفحة (سحب رأسي)", "Page by page (vertical swipe)")
+                        else -> ui.t("صفحة بصفحة (سحب جانبي)", "Page by page (side swipe)")
+                    },
                     listOf(
-                        ui.t("صفحة بصفحة — اتجاه السحب حسب اللغة", "Page by page — swipe direction follows language") to { st.readMode = "h"; again() },
-                        ui.t("كل الصفحات تحت بعضها (تمرير رأسي)", "All pages stacked (vertical scroll)") to { st.readMode = "c"; again() }
+                        ui.t("صفحة بصفحة — سحب جانبي (الاتجاه حسب اللغة)", "Page by page — side swipe") to { st.readMode = "h"; again() },
+                        ui.t("صفحة بصفحة — سحب رأسي (لأعلى = التالية)", "Page by page — vertical swipe") to { st.readMode = "v"; again() },
+                        ui.t("كل الصفحات تحت بعضها (تمرير متصل)", "All pages stacked (continuous scroll)") to { st.readMode = "c"; again() }
+                    )
+                ),
+                choiceRow(
+                    ui.t("التكبير الثابت", "Fixed zoom"),
+                    if (st.fixedZoom == 0) ui.t("تلقائي", "Auto") else "${st.fixedZoom}%",
+                    listOf(0, 125, 150, 175, 200, 250, 300).map { z ->
+                        (if (z == 0) ui.t("تلقائي (ملائمة)", "Auto (fit)") else "$z%") to { st.fixedZoom = z; again() }
+                    }
+                ),
+                choiceRow(
+                    ui.t("الوضع المريح للعين", "Eye comfort"),
+                    when (st.comfort) { 1 -> ui.t("أصفر دافئ", "Warm yellow"); 2 -> ui.t("أخضر هادئ", "Soft green"); else -> ui.t("إيقاف", "Off") },
+                    listOf(
+                        ui.t("إيقاف", "Off") to { st.comfort = 0; again() },
+                        ui.t("أصفر دافئ", "Warm yellow") to { st.comfort = 1; again() },
+                        ui.t("أخضر هادئ", "Soft green") to { st.comfort = 2; again() }
                     )
                 ),
                 toggleRow(

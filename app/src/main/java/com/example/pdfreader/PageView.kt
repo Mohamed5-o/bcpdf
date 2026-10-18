@@ -23,6 +23,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import java.util.concurrent.Executors
 import kotlin.math.abs
+import android.graphics.ColorFilter
 import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.cos
@@ -95,8 +96,34 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     var nightMode = false
         set(v) {
             field = v
-            invalidate()
+            rebuildFilter()
         }
+    var comfort = 0                // 0 off, 1 yellow, 2 green
+        set(v) { field = v; rebuildFilter() }
+    var comfortLevel = 50
+        set(v) { field = v; rebuildFilter() }
+    var dimPct = 100
+        set(v) { field = v; rebuildFilter() }
+    var readModeV: String = st.readMode
+        set(v) {
+            if (field == v) return
+            val before = isCont()
+            field = v
+            if (doc != null && width > 0) {
+                finishSettleNow()
+                dragOff = 0f
+                if (before != isCont()) { scroller.abortAnimation(); showPage(pageIndex, false, null) } else { nbCache.clear(); requestBase(); invalidate() }
+            }
+        }
+    var fixedZoomPct = 0           // 0 = automatic (fit); otherwise percent of the fitted size
+        set(v) {
+            if (field == v) return
+            field = v
+            if (doc != null && width > 0) showPage(pageIndex.coerceAtLeast(0), false, null)
+        }
+    var highlights: List<HighlightItem> = emptyList()
+        set(v) { field = v; invalidate() }
+    var onHighlightTap: ((HighlightItem) -> Unit)? = null
     var selectedId = -1L
         private set
 
@@ -131,7 +158,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     private val tmpRect = RectF()
 
     private val slop = ViewConfiguration.get(ctx).scaledTouchSlop
-    private val nightFilter: ColorMatrixColorFilter by lazy {
+    private val nightMatrix: ColorMatrix by lazy {
         // invert + hue-rotate(180°): dark page, text light, photos keep roughly natural colours
         val inv = ColorMatrix(
             floatArrayOf(
@@ -150,7 +177,29 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             )
         )
         inv.postConcat(hue)
-        ColorMatrixColorFilter(inv)
+        inv
+    }
+    private var pageFilter: ColorFilter? = null
+
+    fun rebuildFilter() {
+        val cm = ColorMatrix()
+        var any = false
+        if (nightMode) { cm.set(nightMatrix); any = true }
+        val lv = comfortLevel.coerceIn(0, 100) / 100f
+        if (comfort != 0) {
+            val r = if (comfort == 1) 1f else 1f - 0.42f * lv
+            val g = if (comfort == 1) 1f - 0.16f * lv else 1f
+            val b = if (comfort == 1) 1f - 0.55f * lv else 1f - 0.45f * lv
+            cm.postConcat(ColorMatrix(floatArrayOf(r, 0f, 0f, 0f, 0f, 0f, g, 0f, 0f, 0f, 0f, 0f, b, 0f, 0f, 0f, 0f, 0f, 1f, 0f)))
+            any = true
+        }
+        if (dimPct < 100) {
+            val d = dimPct.coerceIn(20, 100) / 100f
+            cm.postConcat(ColorMatrix(floatArrayOf(d, 0f, 0f, 0f, 0f, 0f, d, 0f, 0f, 0f, 0f, 0f, d, 0f, 0f, 0f, 0f, 0f, 1f, 0f)))
+            any = true
+        }
+        pageFilter = if (any) ColorMatrixColorFilter(cm) else null
+        invalidate()
     }
 
     // ── gesture state ──
@@ -224,7 +273,8 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         currentHit = null
         deselect(false)
         computeFit()
-        if (!keepZoom || restore != null) zoom = 1f
+        val fz = if (fixedZoomPct > 100) fixedZoomPct / 100f else 1f
+        if (!keepZoom || restore != null) zoom = if (restore == null) fz.coerceIn(1f, 8f) else 1f
         if (restore != null) {
             zoom = restore[2].coerceIn(1f, 8f)
             val s = fit * zoom
@@ -232,7 +282,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             oy = height / 2f - restore[1] * ph * s
         } else {
             val s = fit * zoom
-            ox = if (pw * s <= width) (width - pw * s) / 2f else 0f
+            ox = if (pw * s <= width) (width - pw * s) / 2f else if (fz > 1f && st.arabic) width - pw * s else 0f
             oy = if (ph * s <= height) (height - ph * s) / 2f else 0f
         }
         clampPan()
@@ -307,6 +357,48 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     }
 
     fun hasSelection(): Boolean = selA >= 0 && selB >= 0
+    fun zoomLevel(): Float = zoom
+
+    /** Selected text as per-line rectangles (fractions of the page), or null. */
+    fun selectionRects(): List<RectF>? {
+        val pt = pageText ?: return null
+        if (selA < 0 || selB < 0 || pw <= 0f || ph <= 0f) return null
+        val lo = min(selA, selB)
+        val hi = min(max(selA, selB), pt.rects.size - 1)
+        val out = ArrayList<RectF>()
+        var cur: RectF? = null
+        for (i in lo..hi) {
+            val r = pt.rects[i] ?: continue
+            val c = cur
+            if (c != null && abs((c.top + c.bottom) / 2f - (r.top + r.bottom) / 2f) < (c.bottom - c.top) * 0.6f) {
+                c.left = min(c.left, r.left); c.right = max(c.right, r.right)
+                c.top = min(c.top, r.top); c.bottom = max(c.bottom, r.bottom)
+            } else {
+                if (c != null) out.add(c)
+                cur = RectF(r)
+            }
+        }
+        cur?.let { out.add(it) }
+        return out.map { RectF(it.left / pw, it.top / ph, it.right / pw, it.bottom / ph) }
+    }
+
+    fun highlightAtPaged(x: Float, y: Float): HighlightItem? {
+        if (highlights.isEmpty()) return null
+        val fx = toPageX(x) / pw
+        val fy = toPageY(y) / ph
+        for (h in highlights.reversed()) if (h.page == pageIndex && h.contains(fx, fy, 0.004f)) return h
+        return null
+    }
+
+    private fun highlightAtCont(x: Float, y: Float): HighlightItem? {
+        if (highlights.isEmpty() || psz.isEmpty()) return null
+        val i = pageAtY(cy + y)
+        val hh = max(1f, pageH(i) * zoom)
+        val fy = (cy + y - tops[i] * zoom) / hh
+        val fx = (cx + x) / max(1f, width * zoom)
+        for (h in highlights.reversed()) if (h.page == i && h.contains(fx, fy, 0.004f)) return h
+        return null
+    }
 
     fun selectAllText() {
         val pt = pageText ?: return
@@ -556,7 +648,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         if (dragOff != 0f) drawNeighbor(canvas)
         val s = scale()
         canvas.save()
-        canvas.translate(dragOff, 0f)
+        if (vert()) canvas.translate(0f, dragOff) else canvas.translate(dragOff, 0f)
         val pr = RectF(ox, oy, ox + pw * s, oy + ph * s)
 
         for (k in 4 downTo 1) {
@@ -566,7 +658,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         }
         fillPaint.color = if (nightMode) Color.rgb(20, 22, 21) else Color.WHITE
         canvas.drawRect(pr, fillPaint)
-        pagePaint.colorFilter = if (nightMode) nightFilter else null
+        pagePaint.colorFilter = pageFilter
         base?.let { canvas.drawBitmap(it, null, pr, pagePaint) }
         tile?.let {
             tmpRect.set(ox + tileRect.left * s, oy + tileRect.top * s, ox + tileRect.right * s, oy + tileRect.bottom * s)
@@ -593,6 +685,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     }
 
     private fun drawItems(c: Canvas, page: Int, W: Float, H: Float, frame: Boolean) {
+        for (h in highlights) if (h.page == page) h.drawOn(c, W, H, fillPaint)
         val es = edit ?: return
         for (item in es.items) {
             if (!item.appliesTo(page)) continue
@@ -951,25 +1044,28 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             }
             return
         }
+        val hl = highlightAtPaged(x, y)
+        if (hl != null) { onHighlightTap?.invoke(hl); return }
         onTap?.invoke()
     }
 
     // pan + page swipe ----------------------------------------------------------------
 
-    private fun fwdSign(): Float = (if (st.arabic) 1f else -1f) * (if (st.flipSwipe) -1f else 1f)
+    private fun fwdSign(): Float = (if (vert()) -1f else (if (st.arabic) 1f else -1f)) * (if (st.flipSwipe) -1f else 1f)
     private fun gapPx() = ui.dpf(12f)
 
     private fun panOrSwipe(dx: Float, dy: Float) {
-        var rdx = dx
-        if (overA != 0f && Math.signum(dx) == -Math.signum(overA)) {
-            val back = if (abs(dx) > abs(overA)) -overA else dx
+        val v = vert()
+        val main = if (v) dy else dx
+        var rm = main
+        if (overA != 0f && Math.signum(main) == -Math.signum(overA)) {
+            val back = if (abs(main) > abs(overA)) -overA else main
             overA += back
-            rdx = dx - back
+            rm = main - back
         }
-        ox += rdx
-        oy += dy
+        if (v) { ox += dx; oy += rm } else { ox += rm; oy += dy }
         val away = clampPan()
-        overA += away[0]
+        overA += if (v) away[1] else away[0]
         val n = doc?.pageCount ?: 1
         val nextDir = Math.signum(overA) == fwdSign()
         val blocked = overA != 0f && ((nextDir && pageIndex >= n - 1) || (!nextDir && pageIndex <= 0))
@@ -982,10 +1078,11 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         var v = 0f
         if (vt != null) {
             vt.computeCurrentVelocity(1000)
-            v = vt.xVelocity
+            v = if (vert()) vt.yVelocity else vt.xVelocity
         }
+        val axis = (if (vert()) height else width).toFloat()
         val dist = abs(overA)
-        val far = max(ui.dpf(70f), width * 0.18f)
+        val far = max(ui.dpf(70f), axis * 0.18f)
         val near = ui.dpf(20f)
         val fast = abs(v) > 800f && dist > near && Math.signum(v) == Math.signum(overA)
         val n = doc?.pageCount ?: 1
@@ -993,7 +1090,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         val blocked = (nextDir && pageIndex >= n - 1) || (!nextDir && pageIndex <= 0)
         if (overA != 0f && !blocked && (dist > far || fast)) {
             val dir = if (nextDir) 1 else -1
-            val target = if (overA < 0) -(width + gapPx()) else (width + gapPx())
+            val target = if (overA < 0) -(axis + gapPx()) else (axis + gapPx())
             settle(target) {
                 overA = 0f
                 onPageSwipe?.invoke(dir)
@@ -1018,7 +1115,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             return
         }
         val a = ValueAnimator.ofFloat(dragOff, target)
-        val frac = min(1f, abs(target - dragOff) / max(1f, width.toFloat()))
+        val frac = min(1f, abs(target - dragOff) / max(1f, (if (vert()) height else width).toFloat()))
         a.duration = (150 + 170 * frac).toLong()
         a.interpolator = DecelerateInterpolator(1.7f)
         a.addUpdateListener { dragOff = it.animatedValue as Float; invalidate() }
@@ -1051,20 +1148,22 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         val d = doc ?: return
         val n = neighborFor(dragOff)
         if (n < 0 || n >= d.pageCount) return
-        val xOff = dragOff + (if (dragOff < 0) width + gapPx() else -(width + gapPx()))
+        val vv = vert()
+        val axisLen = (if (vv) height else width).toFloat()
+        val xOff = dragOff + (if (dragOff < 0) axisLen + gapPx() else -(axisLen + gapPx()))
         val nb = nbCache[n]
         val pwN = nb?.pw ?: pw
         val phN = nb?.ph ?: ph
         val f = fitFor(pwN, phN)
         val w = pwN * f
         val h = phN * f
-        val l = xOff + (if (w <= width) (width - w) / 2f else 0f)
-        val t = if (h <= height) (height - h) / 2f else 0f
+        val l = if (vv) (if (w <= width) (width - w) / 2f else 0f) else xOff + (if (w <= width) (width - w) / 2f else 0f)
+        val t = if (vv) xOff + (if (h <= height) (height - h) / 2f else 0f) else (if (h <= height) (height - h) / 2f else 0f)
         tmpRect.set(l, t, l + w, t + h)
         fillPaint.color = if (nightMode) Color.rgb(20, 22, 21) else Color.WHITE
         c.drawRect(tmpRect, fillPaint)
         if (nb != null) {
-            pagePaint.colorFilter = if (nightMode) nightFilter else null
+            pagePaint.colorFilter = pageFilter
             c.drawBitmap(nb.bmp, null, tmpRect, pagePaint)
         }
     }
@@ -1099,7 +1198,8 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
 
     // ───────────────────────── continuous mode ─────────────────────────
 
-    fun isCont(): Boolean = st.readMode == "c" && !editMode && !eraser && !forcePaged
+    fun isCont(): Boolean = readModeV == "c" && !editMode && !eraser && !forcePaged
+    private fun vert(): Boolean = readModeV == "v" && !editMode && !eraser
 
     private fun modeChanged(before: Boolean) {
         val after = isCont()
@@ -1181,7 +1281,8 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
         initCont()
         val i = index.coerceIn(0, psz.size - 1)
         d.pageSize(i)?.let { psz[i] = it; defSz = it }
-        if (!keepZoom || restore != null) zoom = 1f
+        val fzc = if (fixedZoomPct > 100) fixedZoomPct / 100f else 1f
+        if (!keepZoom || restore != null) zoom = if (restore == null) fzc.coerceIn(1f, 4f) else 1f
         if (restore != null) zoom = restore[2].coerceIn(1f, 4f)
         zoom = zoom.coerceIn(1f, 4f)
         rebuildTops()
@@ -1190,7 +1291,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             cx = restore[0] * width * zoom - width / 2f
         } else {
             cy = tops[i] * zoom
-            if (!keepZoom) cx = 0f
+            if (!keepZoom) cx = if (fzc > 1f && st.arabic) max(0f, width * zoom - width) else 0f
         }
         clampCont()
         pageIndex = -1
@@ -1271,7 +1372,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     private fun drawCont(canvas: Canvas) {
         val n = psz.size
         val z = zoom
-        pagePaint.colorFilter = if (nightMode) nightFilter else null
+        pagePaint.colorFilter = pageFilter
         var i = pageAtY(cy)
         while (i < n) {
             val top = tops[i] * z - cy
@@ -1378,8 +1479,10 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 val up = e.actionMasked == MotionEvent.ACTION_UP
                 if (gesture == G_PAN) {
-                    if (!moved && up) onTap?.invoke()
-                    else if (moved && up) {
+                    if (!moved && up) {
+                        val hl = highlightAtCont(e.x, e.y)
+                        if (hl != null) onHighlightTap?.invoke(hl) else onTap?.invoke()
+                    } else if (moved && up) {
                         val vt = velocity
                         if (vt != null) {
                             vt.computeCurrentVelocity(1000)

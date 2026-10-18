@@ -9,9 +9,24 @@ android {
         applicationId = "com.example.pdfreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 106
+        versionCode = 107
         versionName = "10.6"
         multiDexEnabled = true
+    }
+    signingConfigs {
+        create("rel") {
+            storeFile = rootProject.file("release.keystore")
+            storePassword = "blackclover"
+            keyAlias = "bc"
+            keyPassword = "blackclover"
+        }
+    }
+    buildTypes {
+        getByName("debug") { signingConfig = signingConfigs.getByName("rel") }
+        getByName("release") {
+            signingConfig = signingConfigs.getByName("rel")
+            isMinifyEnabled = false
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

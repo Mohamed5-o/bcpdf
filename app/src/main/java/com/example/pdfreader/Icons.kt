@@ -222,6 +222,25 @@ class IconView(ctx: Context, var kind: String, var tint: Int) : View(ctx) {
                 poly(c, 6f, 3f, 18f, 3f, 18f, 21f, 6f, 21f, closed = true)
                 line(c, 9f, 8f, 15f, 8f); line(c, 9f, 12f, 15f, 12f); line(c, 9f, 16f, 13f, 16f)
             }
+            "marker" -> {
+                poly(c, 4f, 17f, 14f, 7f, 18f, 11f, 8f, 21f, closed = true)
+                poly(c, 14f, 7f, 16f, 3.5f, 20.5f, 8f, 18f, 11f)
+                line(c, 3f, 21f, 8f, 21f)
+            }
+            "eye" -> {
+                val p = Path()
+                p.moveTo(2.5f, 12f); p.cubicTo(6f, 5.5f, 18f, 5.5f, 21.5f, 12f); p.cubicTo(18f, 18.5f, 6f, 18.5f, 2.5f, 12f)
+                c.drawPath(p, stroke)
+                c.drawCircle(12f, 12f, 3.2f, stroke)
+            }
+            "tools" -> {
+                c.drawRoundRect(RectF(3.5f, 3.5f, 10.5f, 10.5f), 1.5f, 1.5f, stroke)
+                c.drawRoundRect(RectF(13.5f, 3.5f, 20.5f, 10.5f), 1.5f, 1.5f, stroke)
+                c.drawRoundRect(RectF(3.5f, 13.5f, 10.5f, 20.5f), 1.5f, 1.5f, stroke)
+                line(c, 17f, 14f, 17f, 20f); line(c, 14f, 17f, 20f, 17f)
+            }
+            "up" -> poly(c, 6f, 14f, 12f, 8f, 18f, 14f)
+            "down" -> poly(c, 6f, 10f, 12f, 16f, 18f, 10f)
             else -> c.drawCircle(12f, 12f, 6f, stroke)
         }
     }

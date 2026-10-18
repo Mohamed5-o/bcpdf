@@ -51,6 +51,11 @@ class Settings(ctx: Context) {
     var restorePos by bool("restorePos", true)
     var showPageNum by bool("showPageNum", true)
     var night by bool("night", false)
+    var comfort by int("comfort", 0)               // 0 off | 1 yellow | 2 green
+    var comfortLevel by int("comfortLevel", 50)
+    var dimPct by int("dimPct", 100)
+    var fixedZoom by int("fixedZoom", 0)           // 0 = auto, else percent of fitted size
+    var compactSide by bool("compactSide", true)
 
     // Appearance
     var language by str("language", "ar")

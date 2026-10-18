@@ -32,12 +32,25 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
     var searchHits: List<SearchHit> = emptyList()
     var searchIdx = -1
     var lastQuery = ""
+    var lastResults: List<SearchHit> = emptyList()
     var editMode = false
         private set
     private var eraserOn = false
     private var toolsVisible = true
     private var bannerMark: ResumeMark? = null
     private var draftChecked = false
+
+    // view settings of this document (profile or global defaults)
+    val annots = ArrayList<HighlightItem>()
+    var bakeHl = false
+    private var vReadMode = "h"
+    private var vFixedZoom = 0
+    private var vComfort = 0
+    private var vComfortLevel = 50
+    private var vDim = 100
+    private var vNight = false
+    private var lastHlColor = 0xFFFFE04A.toInt()
+    private val hlColors = intArrayOf(0xFFFFE04A.toInt(), 0xFF6FE08A.toInt(), 0xFFFF8FB5.toInt(), 0xFF7CC4FF.toInt())
 
     private var pv: PageView? = null
     private var topBar: LinearLayout? = null
@@ -84,6 +97,16 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         }
         val m = act.marks.resumeFor(entry.id)
         if (m != null && m.page != currentPage) bannerMark = m
+        annots.clear()
+        annots.addAll(act.annots.load(entry.id))
+        bakeHl = annots.isNotEmpty()
+        val pr = act.profiles.get(entry.id)
+        vReadMode = pr?.readMode ?: st.readMode
+        vFixedZoom = pr?.fixedZoom ?: st.fixedZoom
+        vComfort = pr?.comfort ?: st.comfort
+        vComfortLevel = pr?.comfortLevel ?: st.comfortLevel
+        vDim = pr?.dim ?: st.dimPct
+        vNight = pr?.night ?: st.night
     }
 
     private fun label(key: String): String = when (key) {
@@ -97,6 +120,9 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         "goto" -> ui.t("الانتقال إلى صفحة", "Go to page")
         "mark" -> ui.t("حفظ علامة القراءة", "Save reading mark")
         "copy" -> ui.t("نسخ النصوص", "Copy text")
+        "view" -> ui.t("العرض والراحة للعين", "View & eye comfort")
+        "hl" -> ui.t("التظليل والملاحظات", "Highlights & notes")
+        "pdf" -> ui.t("أدوات الملف", "File tools")
         else -> ui.t("الوضع الليلي", "Night mode")
     }
 
@@ -118,7 +144,14 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         view.doc = doc
         view.edit = edit
         view.textEngine = textEngine
-        view.nightMode = st.night
+        view.readModeV = vReadMode
+        view.fixedZoomPct = vFixedZoom
+        view.comfort = vComfort
+        view.comfortLevel = vComfortLevel
+        view.dimPct = vDim
+        view.nightMode = vNight
+        view.highlights = annots
+        view.onHighlightTap = { h -> highlightDialog(h) }
         view.editMode = editMode
         view.eraser = eraserOn
         view.eraserSizePt = st.eraserSize.toFloat()
@@ -158,13 +191,16 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
 
         // text-selection bar
         val sb = LinearLayout(act)
-        sb.orientation = LinearLayout.HORIZONTAL
-        sb.gravity = Gravity.CENTER_VERTICAL
-        sb.layoutDirection = ui.dir()
+        sb.orientation = LinearLayout.VERTICAL
+        sb.gravity = Gravity.CENTER_HORIZONTAL
         sb.background = ui.rounded(Color.argb(240, 13, 25, 21), 14, C.accent)
-        sb.setPadding(ui.dp(6), ui.dp(4), ui.dp(6), ui.dp(4))
+        sb.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(4))
         sb.visibility = View.GONE
-        sb.addView(ui.primaryBtn(ui.t("نسخ", "Copy")) {
+        val r1 = LinearLayout(act)
+        r1.orientation = LinearLayout.HORIZONTAL
+        r1.gravity = Gravity.CENTER_VERTICAL
+        r1.layoutDirection = ui.dir()
+        r1.addView(ui.primaryBtn(ui.t("نسخ", "Copy")) {
             val s = view.selectedText()
             if (s.isNotBlank()) {
                 act.dialogs.copyToClipboard(s)
@@ -172,8 +208,26 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
             }
             view.clearTextSelection()
         }, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, ui.dp(6), 0))
-        sb.addView(ui.ghostBtn(ui.t("تحديد الكل", "Select all")) { view.selectAllText() }, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, ui.dp(6), 0))
-        sb.addView(ui.icon("close", C.white, 40) { view.clearTextSelection() })
+        r1.addView(ui.ghostBtn(ui.t("تحديد الكل", "Select all")) { view.selectAllText() }, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, ui.dp(2), 0))
+        r1.addView(ui.icon("close", C.white, 40) { view.clearTextSelection() })
+        sb.addView(r1)
+        val r2 = LinearLayout(act)
+        r2.orientation = LinearLayout.HORIZONTAL
+        r2.gravity = Gravity.CENTER_VERTICAL
+        r2.layoutDirection = ui.dir()
+        r2.addView(IconView(act, "marker", C.gold).also { it.layoutParams = LinearLayout.LayoutParams(ui.dp(28), ui.dp(28)); it.setPadding(ui.dp(3), ui.dp(3), ui.dp(3), ui.dp(3)) })
+        for (col in hlColors) {
+            val dot = View(act)
+            val g = android.graphics.drawable.GradientDrawable()
+            g.shape = android.graphics.drawable.GradientDrawable.OVAL
+            g.setColor(col)
+            g.setStroke(ui.dp(1), C.line)
+            dot.background = g
+            dot.setOnClickListener { lastHlColor = col; addHighlight(col, "") }
+            r2.addView(dot, ui.lpm(ui.dp(34), ui.dp(34), 0f, ui.dp(5), ui.dp(3), ui.dp(5), ui.dp(3)))
+        }
+        r2.addView(ui.ghostBtn(ui.t("+ ملاحظة", "+ Note")) { noteForSelection() }, ui.lpm(ui.WRAP, ui.WRAP, 0f, ui.dp(4), 0, 0, 0))
+        sb.addView(r2)
         selBar = sb
         content.addView(sb, FrameLayout.LayoutParams(ui.WRAP, ui.WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also { it.setMargins(0, ui.dp(10), 0, 0) })
 
@@ -346,10 +400,22 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
     }
 
     private fun sideBtn(kind: String, key: String, active: Boolean, tint: Int, onClick: () -> Unit): IconView {
-        val v = ui.icon(kind, if (active) C.accent else tint, 44) { onClick() }
-        if (active) v.background = ui.rounded(C.accentDark(), 12, C.accent)
+        val v = IconView(act, kind, if (active) C.accent else tint)
+        v.flipForRtl = ui.rtl
+        v.layoutParams = LinearLayout.LayoutParams(ui.dp(38), ui.dp(38))
+        v.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9))
+        v.setOnClickListener { onClick() }
+        ui.pressFx(v, 0.88f)
+        if (active) v.background = ui.rounded(C.accentDark(), 10, C.accent)
         v.setOnLongClickListener { ui.toast(label(key)); true }
         return v
+    }
+
+    private fun sideGap(): View {
+        val d = View(act)
+        d.setBackgroundColor(C.line)
+        d.layoutParams = LinearLayout.LayoutParams(ui.dp(22), 1).also { it.setMargins(0, ui.dp(3), 0, ui.dp(3)) }
+        return d
     }
 
     private fun fillSidebar() {
@@ -358,27 +424,35 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         val bar = LinearLayout(act)
         bar.orientation = LinearLayout.VERTICAL
         bar.gravity = Gravity.CENTER_HORIZONTAL
-        bar.background = ui.rounded(Color.argb(232, 10, 20, 17), 20, C.accentSoft(150))
-        bar.setPadding(ui.dp(3), ui.dp(4), ui.dp(3), ui.dp(4))
+        bar.background = ui.rounded(Color.argb(205, 10, 20, 17), 16, C.accentSoft(120))
+        bar.setPadding(ui.dp(2), ui.dp(3), ui.dp(2), ui.dp(3))
         val list = LinearLayout(act)
         list.orientation = LinearLayout.VERTICAL
+        list.gravity = Gravity.CENTER_HORIZONTAL
+        // read
+        list.addView(sideBtn("eye", "view", false, C.white) { viewPanel() })
+        list.addView(sideBtn("search", "search", false, C.white) { toolSearch() })
+        list.addView(sideBtn("goto", "goto", false, C.white) { showGoto() })
+        val hasMark = act.marks.resumeFor(entry.id) != null
+        list.addView(sideBtn(if (hasMark) "bookmarkFill" else "bookmark", "mark", false, if (hasMark) C.gold else C.white) { toolMark() })
+        list.addView(sideBtn("marker", "hl", annots.isNotEmpty(), C.white) { toolHighlight() })
+        list.addView(sideBtn("copy", "copy", false, C.white) { toolCopy() })
+        list.addView(sideGap())
+        // edit
         list.addView(sideBtn("edit", "edit", editMode, C.white) { setEditMode(!editMode) })
         list.addView(sideBtn("text", "text", false, C.white) { toolText() })
         list.addView(sideBtn("image", "image", false, C.white) { toolImage() })
         list.addView(sideBtn("sign", "sign", false, C.white) { toolSign() })
         list.addView(sideBtn("drop", "wm", false, C.white) { toolWatermark() })
         list.addView(sideBtn("eraser", "eraser", eraserOn, C.white) { toolEraser() })
-        list.addView(sideBtn("search", "search", false, C.white) { toolSearch() })
-        list.addView(sideBtn("goto", "goto", false, C.white) { showGoto() })
-        val hasMark = act.marks.resumeFor(entry.id) != null
-        list.addView(sideBtn(if (hasMark) "bookmarkFill" else "bookmark", "mark", false, if (hasMark) C.gold else C.white) { toolMark() })
-        list.addView(sideBtn("copy", "copy", false, C.white) { toolCopy() })
+        list.addView(sideGap())
+        list.addView(sideBtn("tools", "pdf", false, C.white) { PageTools(act, this).menu() })
         val sv = ScrollView(act)
         sv.isVerticalScrollBarEnabled = false
         sv.addView(list)
         bar.addView(sv, ui.lp(ui.WRAP, 0, 1f))
-        bar.addView(ui.divider().also { it.layoutParams = LinearLayout.LayoutParams(ui.dp(30), 1) })
-        bar.addView(sideBtn(if (st.night) "moon" else "sun", "night", st.night, C.white) { toggleNight() })
+        bar.addView(sideGap())
+        bar.addView(sideBtn(if (vNight) "moon" else "sun", "night", vNight, C.white) { toggleNight() })
         holder.addView(bar, FrameLayout.LayoutParams(ui.WRAP, ui.WRAP))
         // bound height: tall enough for all tools but never over the top bar
         holder.post {
@@ -610,10 +684,298 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         }
     }
 
+    // ───────────────────────── highlights & notes ─────────────────────────
+
+    private fun persistAnnots() {
+        act.annots.save(entry.id, annots)
+        bakeHl = annots.isNotEmpty()
+        pv?.highlights = annots
+        pv?.invalidate()
+    }
+
+    private fun addHighlight(color: Int, note: String) {
+        val v = pv ?: return
+        val rs = v.selectionRects()
+        if (rs == null || rs.isEmpty()) {
+            ui.toast(ui.t("حدّد نصًا أولًا (اضغط مطولًا على كلمة)", "Select some text first (long-press a word)"))
+            return
+        }
+        val h = HighlightItem(System.nanoTime())
+        h.page = v.pageIndex
+        h.color = color
+        h.note = note
+        h.snippet = v.selectedText().replace('\n', ' ').trim().take(140)
+        h.rects.addAll(rs)
+        annots.add(h)
+        persistAnnots()
+        v.clearTextSelection()
+        fillSidebar()
+        ui.toast(ui.t("تم التظليل", "Highlighted"))
+    }
+
+    private fun noteForSelection() {
+        val v = pv ?: return
+        if (!v.hasSelection()) return
+        ui.dialog { card, dlg ->
+            card.addView(ui.txt(ui.t("إضافة ملاحظة على النص المحدد", "Note on the selected text"), 18f, C.gold, true, true))
+            val f = ui.field(ui.t("اكتب ملاحظتك", "Write your note"), "", true)
+            card.addView(f, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(10), 0, ui.dp(12)))
+            val row = LinearLayout(act)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.addView(ui.ghostBtn(ui.t("إلغاء", "Cancel")) { dlg.dismiss() }, ui.lpm(0, ui.WRAP, 1f, 0, 0, ui.dp(6), 0))
+            row.addView(ui.primaryBtn(ui.t("حفظ", "Save")) {
+                dlg.dismiss()
+                addHighlight(lastHlColor, f.text.toString().trim())
+            }, ui.lpm(0, ui.WRAP, 1f, ui.dp(6), 0, 0, 0))
+            card.addView(row)
+        }
+    }
+
+    private fun colorDots(current: Int, onPick: (Int) -> Unit): View {
+        val row = LinearLayout(act)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.gravity = Gravity.CENTER_VERTICAL
+        row.layoutDirection = ui.dir()
+        val dots = ArrayList<Pair<Int, View>>()
+        var cur = current
+        fun paint() {
+            for ((c, d) in dots) {
+                val g = android.graphics.drawable.GradientDrawable()
+                g.shape = android.graphics.drawable.GradientDrawable.OVAL
+                g.setColor(c)
+                g.setStroke(ui.dp(if (c == cur) 3 else 1), if (c == cur) C.accent else C.line)
+                d.background = g
+            }
+        }
+        for (c in hlColors) {
+            val d = View(act)
+            d.setOnClickListener { cur = c; paint(); onPick(c) }
+            dots.add(c to d)
+            row.addView(d, ui.lpm(ui.dp(34), ui.dp(34), 0f, ui.dp(4), 0, ui.dp(4), 0))
+        }
+        paint()
+        return row
+    }
+
+    private fun highlightDialog(h: HighlightItem) {
+        ui.dialog { card, dlg ->
+            card.addView(ui.txt(ui.t("تظليل — صفحة ${h.page + 1}", "Highlight — page ${h.page + 1}"), 18f, C.gold, true, true))
+            if (h.snippet.isNotEmpty()) {
+                val s = ui.txt(h.snippet, 13f, C.muted, false, true)
+                s.maxLines = 3
+                s.ellipsize = TextUtils.TruncateAt.END
+                card.addView(s, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(6), 0, ui.dp(8)))
+            }
+            val f = ui.field(ui.t("الملاحظة", "Note"), h.note, true)
+            card.addView(f, ui.lp(ui.MATCH, ui.WRAP))
+            card.addView(colorDots(h.color) { h.color = it; pv?.invalidate() }, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, ui.dp(10), 0, 0))
+            val row = LinearLayout(act)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.addView(ui.btn(ui.t("حذف", "Delete"), C.panel2, C.red, C.line) {
+                dlg.dismiss()
+                annots.removeAll { it.id == h.id }
+                persistAnnots()
+                fillSidebar()
+            }, ui.lpm(0, ui.WRAP, 1f, 0, ui.dp(12), ui.dp(6), 0))
+            row.addView(ui.primaryBtn(ui.t("حفظ", "Save")) {
+                h.note = f.text.toString().trim()
+                dlg.dismiss()
+                persistAnnots()
+            }, ui.lpm(0, ui.WRAP, 1f, ui.dp(6), ui.dp(12), 0, 0))
+            card.addView(row)
+        }
+    }
+
+    private fun toolHighlight() {
+        val v = pv
+        if (v != null && v.hasSelection()) {
+            addHighlight(lastHlColor, "")
+            return
+        }
+        if (annots.isEmpty()) {
+            ui.toast(ui.t("حدّد نصًا بالضغط مطولًا على كلمة ثم اختر لون التظليل من الشريط العلوي", "Long-press a word to select text, then pick a highlight colour from the top bar"))
+            return
+        }
+        ui.dialog(true, true) { card, dlg ->
+            card.addView(ui.txt(ui.t("التظليل والملاحظات (${annots.size})", "Highlights & notes (${annots.size})"), 19f, C.gold, true, true))
+            val list = LinearLayout(act)
+            list.orientation = LinearLayout.VERTICAL
+            val sv = ScrollView(act)
+            sv.addView(list)
+            fun fill() {
+                list.removeAllViews()
+                for (h in annots.sortedWith(compareBy({ it.page }, { it.created }))) {
+                    val row = LinearLayout(act)
+                    row.orientation = LinearLayout.HORIZONTAL
+                    row.gravity = Gravity.CENTER_VERTICAL
+                    row.layoutDirection = ui.dir()
+                    row.background = ui.rounded(C.panel2, 10, C.line)
+                    row.setPadding(ui.dp(10), ui.dp(8), ui.dp(4), ui.dp(8))
+                    val sw = View(act)
+                    sw.background = ui.rounded(h.color, 6, 0)
+                    row.addView(sw, ui.lpm(ui.dp(10), ui.dp(38), 0f, 0, 0, ui.dp(10), 0))
+                    val col = LinearLayout(act)
+                    col.orientation = LinearLayout.VERTICAL
+                    col.addView(ui.txt(ui.t("صفحة ${h.page + 1}", "Page ${h.page + 1}"), 12f, C.gold, true))
+                    val sn = ui.txt(if (h.snippet.isEmpty()) "—" else h.snippet, 13f, C.white)
+                    sn.maxLines = 2
+                    sn.ellipsize = TextUtils.TruncateAt.END
+                    col.addView(sn)
+                    if (h.note.isNotEmpty()) {
+                        val nt = ui.txt("✎ " + h.note, 12f, C.accent)
+                        nt.maxLines = 2
+                        nt.ellipsize = TextUtils.TruncateAt.END
+                        col.addView(nt)
+                    }
+                    row.addView(col, ui.lp(0, ui.WRAP, 1f))
+                    row.addView(ui.icon("trash", C.red, 44) {
+                        annots.removeAll { it.id == h.id }
+                        persistAnnots()
+                        fillSidebar()
+                        fill()
+                    })
+                    row.setOnClickListener { dlg.dismiss(); go(h.page, false) }
+                    list.addView(row, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(3), 0, ui.dp(3)))
+                }
+            }
+            fill()
+            card.addView(sv, ui.lp(ui.MATCH, ui.dp(360)))
+            card.addView(ui.btn(ui.t("حفظ نسخة بالتظليل داخل الملف", "Save a copy with highlights inside the file"), C.accentDark(), C.accent, C.accent) {
+                dlg.dismiss()
+                bakeHl = true
+                act.showSaveScreen(this)
+            }, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(10), 0, 0))
+            card.addView(ui.ghostBtn(ui.t("إغلاق", "Close")) { dlg.dismiss() }, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(8), 0, 0))
+        }
+    }
+
+    /** Called after the highlights were baked into the original file. */
+    fun afterBaked() {
+        annots.clear()
+        act.annots.clear(entry.id)
+        bakeHl = false
+        pv?.highlights = annots
+        fillSidebar()
+    }
+
+    // ───────────────────────── view & eye comfort ─────────────────────────
+
+    private fun applyView() {
+        val v = pv ?: return
+        v.readModeV = vReadMode
+        v.fixedZoomPct = vFixedZoom
+        v.comfort = vComfort
+        v.comfortLevel = vComfortLevel
+        v.dimPct = vDim
+        v.nightMode = vNight
+        fillSidebar()
+    }
+
+    private fun chipGroup(labels: List<String>, selected: () -> Int, onPick: (Int) -> Unit): View {
+        val row = LinearLayout(act)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.layoutDirection = ui.dir()
+        val chips = ArrayList<TextView>()
+        fun paint() {
+            for ((i, t) in chips.withIndex()) {
+                val on = i == selected()
+                t.background = ui.rounded(if (on) C.accentDark() else C.panel2, 16, if (on) C.accent else C.line)
+                t.setTextColor(if (on) C.accent else C.white)
+            }
+        }
+        for ((i, l) in labels.withIndex()) {
+            val t = ui.txt(l, 13f, C.white, true, true)
+            t.setPadding(ui.dp(13), ui.dp(8), ui.dp(13), ui.dp(8))
+            t.setOnClickListener { onPick(i); paint() }
+            chips.add(t)
+            row.addView(t, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, ui.dp(6), 0))
+        }
+        paint()
+        val hs = android.widget.HorizontalScrollView(act)
+        hs.isHorizontalScrollBarEnabled = false
+        hs.addView(row)
+        return hs
+    }
+
+    private fun viewSeek(min: Int, max: Int, value: Int, onChange: (Int) -> Unit): android.widget.SeekBar {
+        val sk = android.widget.SeekBar(act)
+        sk.max = max - min
+        sk.progress = (value - min).coerceIn(0, max - min)
+        sk.progressTintList = android.content.res.ColorStateList.valueOf(C.accent)
+        sk.thumbTintList = android.content.res.ColorStateList.valueOf(C.accent)
+        sk.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: android.widget.SeekBar?, progress: Int, fromUser: Boolean) { if (fromUser) onChange(progress + min) }
+            override fun onStartTrackingTouch(sb: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(sb: android.widget.SeekBar?) {}
+        })
+        return sk
+    }
+
+    private fun viewPanel() {
+        val zoomVals = listOf(0, 125, 150, 175, 200, 250, 300)
+        ui.dialog(true, false, 0.10f, true) { card, dlg ->
+            card.addView(ui.txt(ui.t("العرض والراحة للعين", "View & eye comfort"), 18f, C.gold, true, true))
+            fun lbl(s: String) = ui.txt(s, 12f, C.muted, true, true).also { it.setPadding(0, ui.dp(10), 0, ui.dp(4)) }
+
+            card.addView(lbl(ui.t("طريقة التقليب", "Page turning")))
+            card.addView(chipGroup(
+                listOf(ui.t("أفقي", "Horizontal"), ui.t("رأسي (صفحة بصفحة)", "Vertical pages"), ui.t("متصل (تمرير)", "Continuous")),
+                { when (vReadMode) { "v" -> 1; "c" -> 2; else -> 0 } },
+                { vReadMode = when (it) { 1 -> "v"; 2 -> "c"; else -> "h" }; applyView() }
+            ))
+
+            card.addView(lbl(ui.t("التكبير الثابت (يبقى مع كل الصفحات وبعد تدوير الشاشة)", "Fixed zoom (kept on every page and after rotation)")))
+            val zl = zoomVals.map { if (it == 0) ui.t("تلقائي", "Auto") else "$it%" }
+            card.addView(chipGroup(zl, { zoomVals.indexOf(vFixedZoom) }, { vFixedZoom = zoomVals[it]; applyView() }))
+            card.addView(ui.ghostBtn(ui.t("تثبيت التكبير الحالي", "Lock the current zoom")) {
+                val z = ((pv?.zoomLevel() ?: 1f) * 100f).toInt()
+                vFixedZoom = if (z <= 105) 0 else z.coerceAtMost(800)
+                applyView()
+                ui.toast(if (vFixedZoom == 0) ui.t("التكبير تلقائي", "Zoom is automatic") else ui.t("تم تثبيت التكبير على $vFixedZoom%", "Zoom locked at $vFixedZoom%"))
+            }, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, ui.dp(6), 0, 0))
+
+            card.addView(lbl(ui.t("الوضع المريح للعين", "Eye comfort")))
+            card.addView(chipGroup(
+                listOf(ui.t("إيقاف", "Off"), ui.t("أصفر دافئ", "Warm yellow"), ui.t("أخضر هادئ", "Soft green"), ui.t("ليلي", "Night")),
+                { if (vNight) 3 else vComfort },
+                { i ->
+                    if (i == 3) { vNight = true; st.night = true } else { vComfort = i; if (vNight) { vNight = false; st.night = false } }
+                    if (i == 0) vComfort = 0
+                    applyView()
+                }
+            ))
+            card.addView(lbl(ui.t("شدة اللون", "Tint strength")))
+            card.addView(viewSeek(0, 100, vComfortLevel) { vComfortLevel = it; pv?.comfortLevel = it })
+            card.addView(lbl(ui.t("سطوع الصفحة", "Page brightness")))
+            card.addView(viewSeek(30, 100, vDim) { vDim = it; pv?.dimPct = it })
+
+            card.addView(ui.btn(ui.t("حفظ هذه الإعدادات لهذا الملف فقط", "Save these settings for this file only"), C.accentDark(), C.accent, C.accent) {
+                act.profiles.put(entry.id, ProfileStore.Profile(vReadMode, vFixedZoom, vComfort, vComfortLevel, vDim, vNight))
+                ui.toast(ui.t("تم الحفظ لهذا الملف", "Saved for this file"))
+            }, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(14), 0, 0))
+            val row = LinearLayout(act)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.addView(ui.ghostBtn(ui.t("تطبيق على كل الملفات", "Apply to all files")) {
+                st.readMode = vReadMode; st.fixedZoom = vFixedZoom; st.comfort = vComfort
+                st.comfortLevel = vComfortLevel; st.dimPct = vDim; st.night = vNight
+                act.profiles.remove(entry.id)
+                ui.toast(ui.t("تم التطبيق على كل الملفات", "Applied to all files"))
+            }, ui.lpm(0, ui.WRAP, 1f, 0, ui.dp(8), ui.dp(4), 0))
+            row.addView(ui.ghostBtn(ui.t("إعادة الافتراضي", "Reset")) {
+                act.profiles.remove(entry.id)
+                vReadMode = st.readMode; vFixedZoom = st.fixedZoom; vComfort = st.comfort
+                vComfortLevel = st.comfortLevel; vDim = st.dimPct; vNight = st.night
+                applyView()
+                dlg.dismiss()
+            }, ui.lpm(0, ui.WRAP, 1f, ui.dp(4), ui.dp(8), 0, 0))
+            card.addView(row)
+        }
+    }
+
     // ───────────────────────── tools ─────────────────────────
 
     fun setEditMode(on: Boolean) {
-        if (on && st.readMode == "c" && !editMode) {
+        if (on && vReadMode != "h" && !editMode) {
             ui.toast(ui.t("التعديل يعمل في وضع الصفحة الواحدة، تم التبديل مؤقتًا", "Editing uses single-page view; switched temporarily"))
         }
         editMode = on
@@ -763,8 +1125,9 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
     }
 
     private fun toggleNight() {
-        st.night = !st.night
-        pv?.nightMode = st.night
+        vNight = !vNight
+        st.night = vNight
+        pv?.nightMode = vNight
         fillSidebar()
         scheduleHide()
     }
@@ -806,6 +1169,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
 
     fun setSearch(query: String, hits: List<SearchHit>, index: Int) {
         lastQuery = query
+        lastResults = hits
         searchHits = hits
         searchIdx = if (hits.isEmpty()) -1 else index.coerceIn(0, hits.size - 1)
         if (searchIdx >= 0) currentPage = hits[searchIdx].page
@@ -873,7 +1237,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
     }
 
     private fun onSave() {
-        if (edit.isEmpty()) {
+        if (edit.isEmpty() && annots.isEmpty()) {
             ui.toast(ui.t("لا توجد تعديلات للحفظ بعد", "There are no edits to save yet"))
             return
         }
