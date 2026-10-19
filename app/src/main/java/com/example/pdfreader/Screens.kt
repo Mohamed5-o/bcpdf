@@ -40,6 +40,37 @@ class Screens(private val act: MainActivity) {
     private fun choiceRow(title: String, valueLabel: String, options: List<Pair<String, () -> Unit>>): View =
         ui.settingRow(title, valueLabel, ui.chevron()) { ui.menu(options, title) }
 
+    /** Row of colour swatches: tapping one applies it immediately across the whole app. */
+    private fun accentRow(names: List<String>, again: () -> Unit): View {
+        val box = LinearLayout(act)
+        box.orientation = LinearLayout.VERTICAL
+        box.layoutDirection = ui.dir()
+        box.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(14))
+        val cur = st.accentIdx.coerceIn(0, C.accents.size - 1)
+        box.addView(ui.txt(ui.t("لون الواجهة", "Accent colour"), 15f, C.white, true))
+        box.addView(ui.txt(names[cur], 12f, C.muted))
+        val row = LinearLayout(act)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.layoutDirection = ui.dir()
+        C.accents.forEachIndexed { i, col ->
+            val s = View(act)
+            val g = android.graphics.drawable.GradientDrawable()
+            g.shape = android.graphics.drawable.GradientDrawable.OVAL
+            g.setColor(col)
+            if (i == cur) g.setStroke(ui.dp(3), C.white)
+            s.background = g
+            s.setOnClickListener {
+                st.accentIdx = i
+                C.accent = C.accents[i]
+                act.applyTheme()
+                again()
+            }
+            row.addView(s, ui.lpm(ui.dp(40), ui.dp(40), 0f, 0, 0, ui.dp(12), 0))
+        }
+        box.addView(row, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, ui.dp(10), 0, 0))
+        return box
+    }
+
     fun settings(): View {
         val r = ui.screenRoot()
         r.addView(ui.header(ui.t("الإعدادات", "Settings"), { act.goBack() }))
@@ -107,7 +138,10 @@ class Screens(private val act: MainActivity) {
         )
 
         // B. appearance
-        val accentNames = listOf(ui.t("ذهبي", "Gold"), ui.t("زمردي", "Emerald"), ui.t("سماوي", "Cyan"), ui.t("بنفسجي", "Purple"))
+        val accentNames = listOf(
+            ui.t("ذهبي", "Gold"), ui.t("زمردي", "Emerald"), ui.t("سماوي", "Cyan"),
+            ui.t("بنفسجي", "Purple"), ui.t("وردي", "Rose"), ui.t("برتقالي", "Orange")
+        )
         val sizeNames = listOf(ui.t("صغير", "Small"), ui.t("متوسط", "Medium"), ui.t("كبير", "Large"))
         ui.section(
             col, ui.t("إعدادات المظهر", "Appearance"), listOf(
@@ -119,10 +153,7 @@ class Screens(private val act: MainActivity) {
                     ui.t("حجم النصوص في التطبيق", "App text size"), sizeNames[st.textScaleIdx.coerceIn(0, 2)],
                     sizeNames.mapIndexed { i, n -> n to { st.textScaleIdx = i; again() } }
                 ),
-                choiceRow(
-                    ui.t("لون الواجهة", "Accent colour"), accentNames[st.accentIdx.coerceIn(0, 3)],
-                    accentNames.mapIndexed { i, n -> n to { st.accentIdx = i; C.accent = C.accents[i]; again() } }
-                ),
+                accentRow(accentNames, again),
                 choiceRow(
                     ui.t("عرض مكتبة الملفات", "Library layout"),
                     if (st.libraryView == "grid") ui.t("شبكة", "Grid") else ui.t("قائمة", "List"),
@@ -227,8 +258,28 @@ class Screens(private val act: MainActivity) {
         // F. about
         ui.section(
             col, ui.t("معلومات التطبيق", "About"), listOf(
-                ui.settingRow("BLACK CLOVER PDF READER & EDITOR", ui.t("الإصدار 10.6", "Version 10.6"), ui.chevron()) { act.showAbout() }
+                ui.settingRow("BLACK CLOVER PDF READER & EDITOR", ui.t("الإصدار 10.8", "Version 10.8"), ui.chevron()) { act.showAbout() }
             )
+        )
+
+        // G. reset — a clear full-width button at the very end
+        val resetBtn = ui.btn(ui.t("استعادة الإعدادات الافتراضية", "Restore default settings"), C.panel2, C.red, C.red) {
+            ui.confirm(
+                ui.t("استعادة الإعدادات", "Restore defaults"),
+                ui.t("إرجاع كل الإعدادات إلى الوضع الافتراضي؟ (ملفاتك لا تتأثر)", "Reset all settings to their defaults? (your files are not affected)"),
+                ui.t("استعادة", "Restore"), true
+            ) {
+                st.resetDefaults()
+                C.accent = C.accents[0]
+                act.applyTheme()
+                settingsScroll = 0
+                again()
+            }
+        }
+        col.addView(resetBtn, ui.lpm(ui.MATCH, ui.WRAP, 0f, ui.dp(6), ui.dp(22), ui.dp(6), ui.dp(8)))
+        col.addView(
+            ui.txt(ui.t("يرجّع كل الإعدادات لحالتها الأصلية فقط", "Resets settings only"), 12f, C.muted, false, true),
+            ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, 0, 0, ui.dp(8))
         )
 
         r.addView(scroller(col, { settingsScroll = it }, settingsScroll), ui.lp(ui.MATCH, 0, 1f))
@@ -262,7 +313,7 @@ class Screens(private val act: MainActivity) {
             card.addView(h, ui.lp(ui.MATCH, ui.WRAP))
         }
         row(ui.t("المطور", "Developer"), "Mikey (" + ui.t("محمد محمود عامر", "Mohamed Mahmoud Amer") + ")")
-        row(ui.t("الإصدار", "Version"), "10.6")
+        row(ui.t("الإصدار", "Version"), "10.8")
         row(ui.t("معلومات النسخة", "Build"), "Android " + android.os.Build.VERSION.RELEASE + " · API " + android.os.Build.VERSION.SDK_INT)
         card.addView(ui.divider())
         card.addView(

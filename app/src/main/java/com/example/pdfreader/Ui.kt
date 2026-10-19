@@ -22,10 +22,15 @@ import android.widget.TextView
 import android.widget.Toast
 
 object C {
-    val bg = Color.rgb(14, 12, 10)
-    val panel = Color.rgb(25, 22, 19)
-    val panel2 = Color.rgb(36, 32, 28)
-    val gold = Color.rgb(232, 190, 75)
+    /** Surfaces take a faint tint of the chosen accent so the colour change is visible app-wide. */
+    private fun tint(r: Int, g: Int, b: Int, k: Float): Int = Color.rgb(
+        (r + (Color.red(accent) - r) * k).toInt(), (g + (Color.green(accent) - g) * k).toInt(), (b + (Color.blue(accent) - b) * k).toInt()
+    )
+    val bg: Int get() = tint(14, 12, 10, 0.07f)
+    val panel: Int get() = tint(25, 22, 19, 0.09f)
+    val panel2: Int get() = tint(36, 32, 28, 0.11f)
+    /** Follows the chosen accent colour (titles, headings) instead of being fixed gold. */
+    val gold: Int get() = accent
     val white = Color.rgb(243, 238, 228)
     val muted = Color.rgb(156, 148, 135)
     val red = Color.rgb(232, 98, 90)
@@ -34,7 +39,8 @@ object C {
 
     /** Gold first (main action colour); emerald is kept for status. */
     val accents = intArrayOf(
-        Color.rgb(232, 190, 75), Color.rgb(32, 190, 120), Color.rgb(40, 190, 220), Color.rgb(160, 110, 240)
+        Color.rgb(232, 190, 75), Color.rgb(32, 190, 120), Color.rgb(40, 190, 220), Color.rgb(160, 110, 240),
+        Color.rgb(236, 100, 120), Color.rgb(240, 140, 60)
     )
 
     /** Warm translucent surface used by floating bars and panels. */

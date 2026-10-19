@@ -9,8 +9,8 @@ android {
         applicationId = "com.example.pdfreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 108
-        versionName = "10.6"
+        versionCode = 110
+        versionName = "10.8"
         multiDexEnabled = true
     }
     signingConfigs {

@@ -147,6 +147,13 @@ class MainActivity : Activity() {
 
     // ───────────────────────── navigation ─────────────────────────
 
+    /** Re-applies colours that live outside the screens (window bars, root background). */
+    fun applyTheme() {
+        window.statusBarColor = C.bg
+        window.navigationBarColor = C.bg
+        content.setBackgroundColor(C.bg)
+    }
+
     private fun applyBars(key: String) {
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = if (key == "reader") {

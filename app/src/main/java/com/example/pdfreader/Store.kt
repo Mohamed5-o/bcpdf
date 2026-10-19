@@ -92,6 +92,14 @@ class Settings(ctx: Context) {
     var lastScanMin by int("lastScanMin", 0)
     var sortOrder by str("sortOrder", "opened")    // name | size | opened
 
+    /** Restore every setting to its default; keeps internal bookkeeping and recent searches. */
+    fun resetDefaults() {
+        val keep = setOf("askedStorage", "lastScanMin", "recentSearches")
+        val e = p.edit()
+        for (k in p.all.keys) if (k !in keep) e.remove(k)
+        e.apply()
+    }
+
     val arabic: Boolean get() = language == "ar"
     fun textScale(): Float = when (textScaleIdx) { 0 -> 0.9f; 2 -> 1.15f; else -> 1f }
 
