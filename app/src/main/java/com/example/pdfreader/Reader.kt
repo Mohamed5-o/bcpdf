@@ -135,8 +135,8 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         top.gravity = Gravity.CENTER_VERTICAL
         top.layoutDirection = ui.dir()
         top.setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(2))
+        top.background = android.graphics.drawable.ColorDrawable(C.overlay(238))
         topBar = top
-        root.addView(top, ui.lp(ui.MATCH, ui.WRAP))
 
         val content = FrameLayout(act)
         val view = PageView(act, ui, st)
@@ -177,6 +177,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         view.onItemDelete = { item -> askDelete(item) }
         view.onItemEdit = { item -> if (item is TextItem) editTextItem(item) }
         content.addView(view, FrameLayout.LayoutParams(ui.MATCH, ui.MATCH))
+        content.addView(top, FrameLayout.LayoutParams(ui.MATCH, ui.dp(58), Gravity.TOP))
 
         // resume banner
         val ban = LinearLayout(act)
@@ -187,13 +188,13 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         ban.setPadding(ui.dp(12), ui.dp(8), ui.dp(4), ui.dp(8))
         ban.visibility = View.GONE
         banner = ban
-        content.addView(ban, FrameLayout.LayoutParams(ui.MATCH, ui.WRAP, Gravity.TOP).also { it.setMargins(ui.dp(10), ui.dp(8), ui.dp(10), 0) })
+        content.addView(ban, FrameLayout.LayoutParams(ui.MATCH, ui.WRAP, Gravity.TOP).also { it.setMargins(ui.dp(10), ui.dp(66), ui.dp(10), 0) })
 
         // text-selection bar
         val sb = LinearLayout(act)
         sb.orientation = LinearLayout.VERTICAL
         sb.gravity = Gravity.CENTER_HORIZONTAL
-        sb.background = ui.rounded(Color.argb(240, 13, 25, 21), 14, C.accent)
+        sb.background = ui.rounded(C.overlay(242), 16, C.line)
         sb.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(4))
         sb.visibility = View.GONE
         val r1 = LinearLayout(act)
@@ -229,16 +230,11 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         r2.addView(ui.ghostBtn(ui.t("+ ملاحظة", "+ Note")) { noteForSelection() }, ui.lpm(ui.WRAP, ui.WRAP, 0f, ui.dp(4), 0, 0, 0))
         sb.addView(r2)
         selBar = sb
-        content.addView(sb, FrameLayout.LayoutParams(ui.WRAP, ui.WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also { it.setMargins(0, ui.dp(10), 0, 0) })
+        content.addView(sb, FrameLayout.LayoutParams(ui.WRAP, ui.WRAP, Gravity.TOP or Gravity.CENTER_HORIZONTAL).also { it.setMargins(0, ui.dp(66), 0, 0) })
 
-        // side tools
+        // bottom dock (tools)
         val holder = FrameLayout(act)
         sideHolder = holder
-        content.addView(holder, FrameLayout.LayoutParams(ui.WRAP, ui.WRAP, Gravity.END or Gravity.CENTER_VERTICAL).also {
-            it.setMargins(ui.dp(4), ui.dp(8), ui.dp(6), ui.dp(8))
-        })
-        // keep the bar on the right as in the design, even in English
-        (holder.layoutParams as FrameLayout.LayoutParams).gravity = Gravity.RIGHT or Gravity.CENTER_VERTICAL
 
         // bottom stack
         val stack = LinearLayout(act)
@@ -250,7 +246,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         nav.orientation = LinearLayout.HORIZONTAL
         nav.gravity = Gravity.CENTER_VERTICAL
         nav.layoutDirection = View.LAYOUT_DIRECTION_LTR
-        nav.background = ui.rounded(Color.argb(240, 13, 25, 21), 22, C.accent)
+        nav.background = ui.rounded(C.overlay(242), 22, C.line)
         nav.setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(2))
         nav.addView(ui.icon("chevron", C.white, 40) { showHit(searchIdx - 1) }.also { it.rotation = 180f; it.flipForRtl = false })
         val cnt = ui.txt("", 14f, C.white, true, true)
@@ -266,7 +262,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         ep.orientation = LinearLayout.HORIZONTAL
         ep.gravity = Gravity.CENTER_VERTICAL
         ep.layoutDirection = ui.dir()
-        ep.background = ui.rounded(Color.argb(240, 13, 25, 21), 16, C.accent)
+        ep.background = ui.rounded(C.overlay(242), 18, C.line)
         ep.setPadding(ui.dp(12), ui.dp(6), ui.dp(8), ui.dp(6))
         ep.addView(ui.icon("eraser", C.accent, 36))
         val sz = ui.seek(56, st.eraserSize - 4) { p ->
@@ -284,7 +280,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         val pp = LinearLayout(act)
         pp.orientation = LinearLayout.VERTICAL
         pp.layoutDirection = ui.dir()
-        pp.background = ui.rounded(Color.argb(246, 13, 25, 21), 18, C.accentSoft(170))
+        pp.background = ui.rounded(C.overlay(246), 18, C.line)
         pp.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8))
         pp.visibility = View.GONE
         propPanel = pp
@@ -295,7 +291,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         eb.orientation = LinearLayout.HORIZONTAL
         eb.gravity = Gravity.CENTER
         eb.layoutDirection = View.LAYOUT_DIRECTION_LTR
-        eb.background = ui.rounded(Color.argb(240, 13, 25, 21), 18, C.line)
+        eb.background = ui.rounded(C.overlay(242), 18, C.line)
         eb.setPadding(ui.dp(6), ui.dp(2), ui.dp(6), ui.dp(2))
         undoBtn = ui.icon("undo", C.white, 44) { if (edit.undo()) { view.deselect(false); view.itemsChanged() } }
         redoBtn = ui.icon("redo", C.white, 44) { if (edit.redo()) { view.deselect(false); view.itemsChanged() } }
@@ -313,7 +309,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         sbx.orientation = LinearLayout.HORIZONTAL
         sbx.gravity = Gravity.CENTER_VERTICAL
         sbx.layoutDirection = View.LAYOUT_DIRECTION_LTR
-        sbx.background = ui.rounded(Color.argb(228, 13, 25, 21), 22, C.line)
+        sbx.background = ui.rounded(C.overlay(236), 22, 0)
         sbx.setPadding(ui.dp(14), ui.dp(4), ui.dp(14), ui.dp(4))
         val sbar = android.widget.SeekBar(act)
         sbar.max = maxOf(1, doc.pageCount - 1)
@@ -350,8 +346,9 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         sbx.addView(pill, ui.lp(ui.WRAP, ui.WRAP))
         sbx.visibility = if (st.showPageNum || doc.pageCount > 1) View.VISIBLE else View.GONE
         pill.visibility = if (st.showPageNum) View.VISIBLE else View.GONE
-        stack.addView(sbx, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, 0, ui.dp(10)))
-        content.addView(stack, FrameLayout.LayoutParams(ui.WRAP, ui.WRAP, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        stack.addView(sbx, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, 0, 0, ui.dp(8)))
+        stack.addView(holder, ui.lpm(ui.MATCH, ui.WRAP, 0f, ui.dp(10), 0, ui.dp(10), ui.dp(8)))
+        content.addView(stack, FrameLayout.LayoutParams(ui.MATCH, ui.WRAP, Gravity.BOTTOM))
 
         root.addView(content, ui.lp(ui.MATCH, 0, 1f))
 
@@ -399,73 +396,108 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
         updateLabels()
     }
 
-    private fun sideBtn(kind: String, key: String, active: Boolean, tint: Int, onClick: () -> Unit): IconView {
-        val v = IconView(act, kind, if (active) C.accent else tint)
-        v.flipForRtl = ui.rtl
-        v.layoutParams = LinearLayout.LayoutParams(ui.dp(38), ui.dp(38))
-        v.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9))
-        v.setOnClickListener { onClick() }
-        ui.pressFx(v, 0.88f)
-        if (active) v.background = ui.rounded(C.accentDark(), 10, C.accent)
-        v.setOnLongClickListener { ui.toast(label(key)); true }
-        return v
-    }
-
-    private fun sideGap(): View {
-        val d = View(act)
-        d.setBackgroundColor(C.line)
-        d.layoutParams = LinearLayout.LayoutParams(ui.dp(22), 1).also { it.setMargins(0, ui.dp(3), 0, ui.dp(3)) }
-        return d
+    private fun dockItem(kind: String, text: String, active: Boolean, tint: Int, onClick: () -> Unit): View {
+        val c = LinearLayout(act)
+        c.orientation = LinearLayout.VERTICAL
+        c.gravity = Gravity.CENTER
+        c.setPadding(0, ui.dp(7), 0, ui.dp(6))
+        val col = if (active) C.accent else tint
+        val ic = IconView(act, kind, col)
+        ic.flipForRtl = ui.rtl
+        c.addView(ic, LinearLayout.LayoutParams(ui.dp(26), ui.dp(26)))
+        c.addView(ui.txt(text, 10.5f, if (active) C.accent else C.muted, false, true), ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, ui.dp(2), 0, 0))
+        c.setOnClickListener { onClick() }
+        ui.pressFx(c, 0.92f)
+        return c
     }
 
     private fun fillSidebar() {
         val holder = sideHolder ?: return
         holder.removeAllViews()
         val bar = LinearLayout(act)
-        bar.orientation = LinearLayout.VERTICAL
-        bar.gravity = Gravity.CENTER_HORIZONTAL
-        bar.background = ui.rounded(Color.argb(205, 10, 20, 17), 16, C.accentSoft(120))
-        bar.setPadding(ui.dp(2), ui.dp(3), ui.dp(2), ui.dp(3))
-        val list = LinearLayout(act)
-        list.orientation = LinearLayout.VERTICAL
-        list.gravity = Gravity.CENTER_HORIZONTAL
-        // read
-        list.addView(sideBtn("eye", "view", false, C.white) { viewPanel() })
-        list.addView(sideBtn("search", "search", false, C.white) { toolSearch() })
-        list.addView(sideBtn("goto", "goto", false, C.white) { showGoto() })
-        val hasMark = act.marks.resumeFor(entry.id) != null
-        list.addView(sideBtn(if (hasMark) "bookmarkFill" else "bookmark", "mark", false, if (hasMark) C.gold else C.white) { toolMark() })
-        list.addView(sideBtn("marker", "hl", annots.isNotEmpty(), C.white) { toolHighlight() })
-        list.addView(sideBtn("copy", "copy", false, C.white) { toolCopy() })
-        list.addView(sideGap())
-        // edit
-        list.addView(sideBtn("edit", "edit", editMode, C.white) { setEditMode(!editMode) })
-        list.addView(sideBtn("text", "text", false, C.white) { toolText() })
-        list.addView(sideBtn("image", "image", false, C.white) { toolImage() })
-        list.addView(sideBtn("sign", "sign", false, C.white) { toolSign() })
-        list.addView(sideBtn("drop", "wm", false, C.white) { toolWatermark() })
-        list.addView(sideBtn("eraser", "eraser", eraserOn, C.white) { toolEraser() })
-        list.addView(sideGap())
-        list.addView(sideBtn("tools", "pdf", false, C.white) { PageTools(act, this).menu() })
-        val sv = ScrollView(act)
-        sv.isVerticalScrollBarEnabled = false
-        sv.addView(list)
-        bar.addView(sv, ui.lp(ui.WRAP, 0, 1f))
-        bar.addView(sideGap())
-        bar.addView(sideBtn(if (vNight) "moon" else "sun", "night", vNight, C.white) { toggleNight() })
-        holder.addView(bar, FrameLayout.LayoutParams(ui.WRAP, ui.WRAP))
-        // bound height: tall enough for all tools but never over the top bar
-        holder.post {
-            val parentH = (holder.parent as? View)?.height ?: 0
-            if (parentH > 0) {
-                val lp = holder.layoutParams
-                val maxH = parentH - ui.dp(16)
-                holder.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
-                if (holder.measuredHeight > maxH && lp.height != maxH) {
-                    lp.height = maxH
-                    holder.layoutParams = lp
-                }
+        bar.orientation = LinearLayout.HORIZONTAL
+        bar.gravity = Gravity.CENTER_VERTICAL
+        bar.layoutDirection = ui.dir()
+        bar.background = ui.rounded(C.overlay(240), 24, C.line)
+        bar.setPadding(ui.dp(6), 0, ui.dp(6), 0)
+        fun add(v: View) = bar.addView(v, ui.lp(0, ui.WRAP, 1f))
+        if (!editMode) {
+            val look = vNight || vComfort != 0 || vFixedZoom != 0 || vReadMode != "h" || vDim < 100
+            add(dockItem("search", ui.t("بحث", "Search"), searchHits.isNotEmpty(), C.white) { toolSearch() })
+            add(dockItem("goto", ui.t("انتقال", "Go to"), false, C.white) { showGoto() })
+            add(dockItem("marker", ui.t("تظليل", "Highlight"), annots.isNotEmpty(), C.white) { toolHighlight() })
+            add(dockItem("eye", ui.t("العرض", "View"), look, C.white) { viewPanel() })
+            add(dockItem("more", ui.t("المزيد", "More"), false, C.white) { moreSheet() })
+        } else {
+            add(dockItem("text", ui.t("نص", "Text"), false, C.white) { toolText() })
+            add(dockItem("image", ui.t("صورة", "Image"), false, C.white) { toolImage() })
+            add(dockItem("sign", ui.t("توقيع", "Sign"), false, C.white) { toolSign() })
+            add(dockItem("drop", ui.t("علامة مائية", "Watermark"), false, C.white) { toolWatermark() })
+            add(dockItem("eraser", ui.t("استيكة", "Eraser"), eraserOn, C.white) { toolEraser() })
+        }
+        holder.addView(bar, FrameLayout.LayoutParams(ui.MATCH, ui.WRAP))
+    }
+
+    private fun tile(kind: String, text: String, tint: Int, onClick: () -> Unit): View {
+        val c = LinearLayout(act)
+        c.orientation = LinearLayout.VERTICAL
+        c.gravity = Gravity.CENTER
+        c.background = ui.rounded(C.panel2, 16)
+        c.setPadding(ui.dp(4), ui.dp(12), ui.dp(4), ui.dp(10))
+        val ic = IconView(act, kind, tint)
+        ic.flipForRtl = ui.rtl
+        c.addView(ic, LinearLayout.LayoutParams(ui.dp(26), ui.dp(26)))
+        val t = ui.txt(text, 12f, C.white, false, true)
+        t.maxLines = 2
+        c.addView(t, ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, ui.dp(6), 0, 0))
+        c.setOnClickListener { onClick() }
+        ui.pressFx(c, 0.94f)
+        return c
+    }
+
+    private fun tileGrid(card: LinearLayout, tiles: List<View>) {
+        var i = 0
+        while (i < tiles.size) {
+            val row = LinearLayout(act)
+            row.orientation = LinearLayout.HORIZONTAL
+            row.layoutDirection = ui.dir()
+            for (k in 0 until 3) {
+                val v = tiles.getOrNull(i + k)
+                row.addView(v ?: View(act), ui.lpm(0, if (v == null) 1 else ui.WRAP, 1f, ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4)))
             }
+            card.addView(row)
+            i += 3
+        }
+    }
+
+    private fun moreSheet() {
+        ui.dialog { card, dlg ->
+            fun head(s: String) = card.addView(ui.txt(s, 13f, C.muted, true, true), ui.lpm(ui.MATCH, ui.WRAP, 0f, ui.dp(4), ui.dp(10), 0, ui.dp(2)))
+            fun wrap(f: () -> Unit): () -> Unit = { dlg.dismiss(); f() }
+            val hasMark = act.marks.resumeFor(entry.id) != null
+            head(ui.t("القراءة", "Reading"))
+            tileGrid(card, listOf(
+                tile(if (hasMark) "bookmarkFill" else "bookmark", ui.t("علامة القراءة", "Reading mark"), if (hasMark) C.gold else C.white, wrap { toolMark() }),
+                tile("copy", ui.t("نسخ نص الصفحة", "Copy page text"), C.white, wrap { toolCopy() }),
+                tile(if (vNight) "moon" else "sun", ui.t("الوضع الليلي", "Night mode"), if (vNight) C.accent else C.white, wrap { toggleNight() }),
+                tile("gear", ui.t("الإعدادات", "Settings"), C.white, wrap { act.showSettings() })
+            ))
+            head(ui.t("التعديل", "Editing"))
+            tileGrid(card, listOf(
+                tile("edit", if (editMode) ui.t("إنهاء التعديل", "Stop editing") else ui.t("وضع التعديل", "Edit mode"), if (editMode) C.accent else C.white, wrap { setEditMode(!editMode) }),
+                tile("text", ui.t("إضافة نص", "Add text"), C.white, wrap { toolText() }),
+                tile("image", ui.t("إضافة صورة", "Add image"), C.white, wrap { toolImage() }),
+                tile("sign", ui.t("توقيع", "Signature"), C.white, wrap { toolSign() }),
+                tile("drop", ui.t("علامة مائية", "Watermark"), C.white, wrap { toolWatermark() }),
+                tile("eraser", ui.t("استيكة", "Eraser"), C.white, wrap { toolEraser() })
+            ))
+            head(ui.t("الملف", "File"))
+            tileGrid(card, listOf(
+                tile("tools", ui.t("ترتيب وحذف الصفحات", "Reorder / delete"), C.white, wrap { PageTools(act, this).open(0) }),
+                tile("page", ui.t("استخراج صفحات", "Extract pages"), C.white, wrap { PageTools(act, this).open(1) }),
+                tile("library", ui.t("دمج ملفات", "Merge files"), C.white, wrap { PageTools(act, this).open(2) }),
+                tile("marker", ui.t("كل التظليلات", "All highlights"), C.white, wrap { toolHighlight() })
+            ))
         }
     }
 
@@ -586,6 +618,7 @@ class ReaderScreen(val act: MainActivity, val entry: LibEntry, val doc: PdfDoc) 
     private fun setToolsVisible(v: Boolean) {
         toolsVisible = v || keepVisible()
         fadeTo(sideHolder, toolsVisible)
+        fadeTo(topBar, toolsVisible)
         fadeTo(scrubBox, toolsVisible && doc.pageCount > 1)
         if (toolsVisible) scheduleHide()
     }

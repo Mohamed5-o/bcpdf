@@ -46,6 +46,14 @@ object PdfTools {
 class PageTools(private val act: MainActivity, private val r: ReaderScreen) {
     private val ui get() = act.ui
 
+    fun open(which: Int) {
+        if (r.edit.dirty && !r.edit.isEmpty()) {
+            ui.toast(ui.t("احفظ تعديلاتك أولًا ثم استخدم أدوات الصفحات", "Save your edits first, then use the page tools"))
+            return
+        }
+        when (which) { 0 -> manager(); 1 -> split(); else -> merge() }
+    }
+
     fun menu() {
         if (r.edit.dirty && !r.edit.isEmpty()) {
             ui.toast(ui.t("احفظ تعديلاتك أولًا ثم استخدم أدوات الصفحات", "Save your edits first, then use the page tools"))

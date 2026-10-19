@@ -22,19 +22,23 @@ import android.widget.TextView
 import android.widget.Toast
 
 object C {
-    val bg = Color.rgb(6, 11, 10)
-    val panel = Color.rgb(13, 25, 21)
-    val panel2 = Color.rgb(20, 38, 31)
+    val bg = Color.rgb(14, 12, 10)
+    val panel = Color.rgb(25, 22, 19)
+    val panel2 = Color.rgb(36, 32, 28)
     val gold = Color.rgb(232, 190, 75)
-    val white = Color.rgb(244, 247, 245)
-    val muted = Color.rgb(178, 196, 188)
-    val red = Color.rgb(232, 90, 90)
-    val line = Color.argb(46, 255, 255, 255)
-    var accent = Color.rgb(32, 190, 120)
+    val white = Color.rgb(243, 238, 228)
+    val muted = Color.rgb(156, 148, 135)
+    val red = Color.rgb(232, 98, 90)
+    val line = Color.argb(30, 255, 250, 235)
+    var accent = Color.rgb(232, 190, 75)
 
+    /** Gold first (main action colour); emerald is kept for status. */
     val accents = intArrayOf(
-        Color.rgb(32, 190, 120), Color.rgb(232, 190, 75), Color.rgb(40, 190, 220), Color.rgb(160, 110, 240)
+        Color.rgb(232, 190, 75), Color.rgb(32, 190, 120), Color.rgb(40, 190, 220), Color.rgb(160, 110, 240)
     )
+
+    /** Warm translucent surface used by floating bars and panels. */
+    fun overlay(alpha: Int): Int = Color.argb(alpha, 22, 19, 16)
 
     fun accentDark(): Int = Color.rgb(
         (Color.red(accent) * 0.30f).toInt(), (Color.green(accent) * 0.30f).toInt(), (Color.blue(accent) * 0.30f).toInt()
@@ -69,7 +73,7 @@ class Ui(val ctx: Context, val st: Settings) {
     }
 
     /** Stroke colour for cards/dialogs: glowing accent when visual effects are on. */
-    fun glow(): Int = if (st.effects) C.accent else C.line
+    fun glow(): Int = C.line
 
     fun toast(msg: String) = Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
 
@@ -116,7 +120,7 @@ class Ui(val ctx: Context, val st: Settings) {
     }
 
     fun primaryBtn(label: String, onClick: () -> Unit): TextView = btn(label, C.accent, Color.BLACK, 0, onClick)
-    fun ghostBtn(label: String, onClick: () -> Unit): TextView = btn(label, C.panel2, C.white, C.line, onClick)
+    fun ghostBtn(label: String, onClick: () -> Unit): TextView = btn(label, C.panel2, C.white, 0, onClick)
 
     fun icon(kind: String, tint: Int = C.white, sizeDp: Int = 44, onClick: (() -> Unit)? = null): IconView {
         val v = IconView(ctx, kind, tint)
@@ -219,14 +223,27 @@ class Ui(val ctx: Context, val st: Settings) {
         return c
     }
 
-    /** Modal card dialog. [build] fills the card; use the Dialog to dismiss. */
-    fun dialog(cancelable: Boolean = true, full: Boolean = false, dim: Float = 0.72f, bottom: Boolean = false, build: (LinearLayout, Dialog) -> Unit): Dialog {
+    /** Modal dialog. By default a bottom sheet (slides up); [full] gives a large centred panel for drawing / long lists. */
+    fun dialog(cancelable: Boolean = true, full: Boolean = false, dim: Float = 0.6f, bottom: Boolean = true, build: (LinearLayout, Dialog) -> Unit): Dialog {
         val d = Dialog(ctx)
         d.requestWindowFeature(Window.FEATURE_NO_TITLE)
+        val sheet = bottom && !full
         val card = LinearLayout(ctx)
         card.orientation = LinearLayout.VERTICAL
-        card.background = rounded(C.panel, 24, glow(), 1)
-        card.setPadding(dp(18), dp(18), dp(18), dp(18))
+        if (sheet) {
+            val g = GradientDrawable()
+            g.setColor(C.panel)
+            val r = dp(26).toFloat()
+            g.cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            card.background = g
+            card.setPadding(dp(18), dp(10), dp(18), dp(22))
+            val handle = View(ctx)
+            handle.background = rounded(Color.argb(70, 255, 250, 235), 3)
+            card.addView(handle, LinearLayout.LayoutParams(dp(42), dp(4)).also { it.gravity = Gravity.CENTER_HORIZONTAL; it.bottomMargin = dp(12) })
+        } else {
+            card.background = rounded(C.panel, 24, C.line, 1)
+            card.setPadding(dp(18), dp(18), dp(18), dp(18))
+        }
         card.layoutDirection = dir()
         build(card, d)
         val sv = ScrollView(ctx)
@@ -237,14 +254,14 @@ class Ui(val ctx: Context, val st: Settings) {
         val w = d.window
         if (w != null) {
             w.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            val maxW = dp(520)
-            val sw = (ctx.resources.displayMetrics.widthPixels * (if (full) 0.97f else 0.94f)).toInt()
+            val maxW = dp(560)
+            val sw = if (sheet) ctx.resources.displayMetrics.widthPixels else (ctx.resources.displayMetrics.widthPixels * 0.97f).toInt()
             val hh = if (full) (ctx.resources.displayMetrics.heightPixels * 0.9f).toInt() else WRAP
             w.setLayout(if (sw > maxW) maxW else sw, hh)
             w.setDimAmount(dim)
-            if (bottom) { w.setGravity(Gravity.BOTTOM); w.attributes = w.attributes.also { it.y = dp(8) } }
+            if (sheet) w.setGravity(Gravity.BOTTOM)
             w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-            w.setWindowAnimations(android.R.style.Animation_Dialog)
+            w.setWindowAnimations(if (sheet) R.style.SheetAnim else android.R.style.Animation_Dialog)
         }
         d.show()
         return d

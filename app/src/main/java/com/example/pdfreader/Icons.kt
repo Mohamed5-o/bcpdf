@@ -53,7 +53,7 @@ class IconView(ctx: Context, var kind: String, var tint: Int) : View(ctx) {
         canvas.scale(k, k)
         stroke.color = tint
         fill.color = tint
-        stroke.strokeWidth = 1.9f
+        stroke.strokeWidth = 2.1f
         val flip = flipForRtl && (kind == "back" || kind == "chevron")
         if (flip) canvas.scale(-1f, 1f, 12f, 12f)
         drawKind(canvas)

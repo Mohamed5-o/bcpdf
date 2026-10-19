@@ -387,7 +387,7 @@ class LibraryScreen(private val act: MainActivity) {
 
     private fun thumb(e: LibEntry, w: Int, h: Int): View {
         val box = FrameLayout(act)
-        box.background = ui.rounded(Color.WHITE, 8)
+        box.background = ui.rounded(Color.WHITE, 12)
         val iv = ImageView(act)
         iv.scaleType = ImageView.ScaleType.CENTER_CROP
         act.thumbs.load(e, iv)
@@ -397,6 +397,17 @@ class LibraryScreen(private val act: MainActivity) {
             val chk = ui.icon("check", if (on) Color.BLACK else Color.TRANSPARENT, 26)
             chk.background = ui.rounded(if (on) C.accent else Color.argb(150, 0, 0, 0), 13, C.white)
             box.addView(chk, FrameLayout.LayoutParams(ui.dp(26), ui.dp(26), Gravity.TOP or Gravity.START))
+        }
+        if (e.pages > 1 && e.lastOpened > 0 && e.lastPage > 0) {
+            val frac = ((e.lastPage + 1).toFloat() / e.pages).coerceIn(0.02f, 1f)
+            val bar = LinearLayout(act)
+            bar.orientation = LinearLayout.HORIZONTAL
+            bar.setBackgroundColor(Color.argb(120, 0, 0, 0))
+            val done = View(act)
+            done.setBackgroundColor(C.accent)
+            bar.addView(done, LinearLayout.LayoutParams(0, ui.MATCH, frac))
+            bar.addView(View(act), LinearLayout.LayoutParams(0, ui.MATCH, 1f - frac))
+            box.addView(bar, FrameLayout.LayoutParams(ui.MATCH, ui.dp(4), Gravity.BOTTOM))
         }
         box.layoutParams = LinearLayout.LayoutParams(w, h)
         return box
@@ -423,24 +434,23 @@ class LibraryScreen(private val act: MainActivity) {
         card.orientation = LinearLayout.HORIZONTAL
         card.gravity = Gravity.CENTER_VERTICAL
         card.layoutDirection = ui.dir()
-        card.background = ui.rounded(if (selected.contains(e.id)) C.accentDark() else C.panel, 16, if (selected.contains(e.id)) C.accent else C.line)
+        card.background = ui.rounded(if (selected.contains(e.id)) C.accentDark() else C.panel, 20, if (selected.contains(e.id)) C.accent else 0)
         card.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10))
         card.addView(thumb(e, ui.dp(64), ui.dp(86)), ui.lpm(ui.dp(64), ui.dp(86), 0f, 0, 0, ui.dp(12), 0))
 
         val col = LinearLayout(act)
         col.orientation = LinearLayout.VERTICAL
-        val name = ui.txt(e.name, 15f, C.white, true)
-        name.maxLines = 1
+        val name = ui.txt(e.name, 16f, C.white, true)
+        name.maxLines = 2
         name.ellipsize = TextUtils.TruncateAt.END
         col.addView(name)
-        col.addView(ui.txt(metaLine(e), 12f, C.muted))
-        col.addView(ui.txt(fmtDate(e.lastOpened), 11f, C.muted))
+        col.addView(ui.txt(metaLine(e), 12f, C.muted), ui.lpm(ui.WRAP, ui.WRAP, 0f, 0, ui.dp(2), 0, 0))
         val bottom = LinearLayout(act)
         bottom.orientation = LinearLayout.HORIZONTAL
         bottom.gravity = Gravity.CENTER_VERTICAL
-        bottom.addView(ui.txt(lastReadLine(e), 12f, C.accent, true), ui.lp(0, ui.WRAP, 1f))
+        bottom.addView(ui.txt(lastReadLine(e), 12f, C.muted, false), ui.lp(0, ui.WRAP, 1f))
         if (e.lastOpened > 0 && !selecting) {
-            val cont = ui.btn(ui.t("متابعة القراءة", "Continue"), C.accentDark(), C.accent, C.accent) { act.openEntry(e, e.lastPage) }
+            val cont = ui.btn(ui.t("متابعة", "Continue"), C.accent, Color.BLACK, 0) { act.openEntry(e, e.lastPage) }
             cont.textSize = ui.sp(12f)
             cont.setPadding(ui.dp(10), ui.dp(5), ui.dp(10), ui.dp(5))
             bottom.addView(cont)
@@ -468,16 +478,15 @@ class LibraryScreen(private val act: MainActivity) {
         val card = LinearLayout(act)
         card.orientation = LinearLayout.VERTICAL
         card.layoutDirection = ui.dir()
-        card.background = ui.rounded(if (selected.contains(e.id)) C.accentDark() else C.panel, 16, if (selected.contains(e.id)) C.accent else C.line)
+        card.background = ui.rounded(if (selected.contains(e.id)) C.accentDark() else C.panel, 20, if (selected.contains(e.id)) C.accent else 0)
         card.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8))
         val tw = cardW - ui.dp(16)
         card.addView(thumb(e, tw, (tw * 1.35f).toInt()))
-        val name = ui.txt(e.name, 13f, C.white, true)
-        name.maxLines = 1
+        val name = ui.txt(e.name, 13.5f, C.white, true)
+        name.maxLines = 2
         name.ellipsize = TextUtils.TruncateAt.END
-        card.addView(name, ui.lpm(ui.MATCH, ui.WRAP, 0f, 0, ui.dp(6), 0, 0))
-        card.addView(ui.txt(metaLine(e), 11f, C.muted))
-        card.addView(ui.txt(lastReadLine(e), 11f, C.accent))
+        card.addView(name, ui.lpm(ui.MATCH, ui.WRAP, 0f, ui.dp(2), ui.dp(8), ui.dp(2), 0))
+        card.addView(ui.txt(metaLine(e), 11f, C.muted), ui.lpm(ui.WRAP, ui.WRAP, 0f, ui.dp(2), ui.dp(2), ui.dp(2), ui.dp(2)))
         card.setOnClickListener { tapEntry(e) }
         card.setOnLongClickListener { longEntry(e); true }
         return card

@@ -639,7 +639,7 @@ class PageView(ctx: Context, private val ui: Ui, private val st: Settings) : Vie
     // ───────────────────────── drawing ─────────────────────────
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(if (nightMode) Color.rgb(12, 14, 13) else Color.rgb(24, 30, 28))
+        canvas.drawColor(if (nightMode) Color.rgb(10, 9, 8) else Color.rgb(20, 18, 15))
         if (doc == null) return
         if (isCont() && psz.isNotEmpty()) {
             drawCont(canvas)

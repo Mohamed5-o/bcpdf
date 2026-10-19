@@ -107,7 +107,7 @@ class Screens(private val act: MainActivity) {
         )
 
         // B. appearance
-        val accentNames = listOf(ui.t("زمردي", "Emerald"), ui.t("ذهبي", "Gold"), ui.t("سماوي", "Cyan"), ui.t("بنفسجي", "Purple"))
+        val accentNames = listOf(ui.t("ذهبي", "Gold"), ui.t("زمردي", "Emerald"), ui.t("سماوي", "Cyan"), ui.t("بنفسجي", "Purple"))
         val sizeNames = listOf(ui.t("صغير", "Small"), ui.t("متوسط", "Medium"), ui.t("كبير", "Large"))
         ui.section(
             col, ui.t("إعدادات المظهر", "Appearance"), listOf(
@@ -131,7 +131,6 @@ class Screens(private val act: MainActivity) {
                         ui.t("شبكة", "Grid") to { st.libraryView = "grid"; again() }
                     )
                 ),
-                toggleRow(ui.t("التأثيرات البصرية", "Visual effects"), ui.t("توهج الإطارات الخضراء", "Glowing accent borders"), st.effects) { st.effects = it }
             )
         )
 

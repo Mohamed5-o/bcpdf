@@ -61,7 +61,7 @@ class Settings(ctx: Context) {
     var language by str("language", "ar")
     var textScaleIdx by int("textScaleIdx", 1)
     var accentIdx by int("accentIdx", 0)
-    var libraryView by str("libraryView", "list")  // list | grid
+    var libraryView by str("libraryView", "grid")  // list | grid
     var effects by bool("effects", true)
 
     // Editing

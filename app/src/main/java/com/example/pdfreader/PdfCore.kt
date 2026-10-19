@@ -251,6 +251,90 @@ private class Collector : PDFTextStripper() {
         sb.append('\n')
         rects.add(null)
     }
+
+    private fun isArabic(ch: Char) = ch.code in 0x0600..0x06FF || ch.code in 0x0750..0x077F || ch.code in 0xFB50..0xFDFF || ch.code in 0xFE70..0xFEFF
+
+    /** Canonical letters for Arabic presentation forms (keeps one rect per produced char). */
+    private fun canon(ch: Char): String =
+        if (ch.code in 0xFB50..0xFDFF || ch.code in 0xFE70..0xFEFF) {
+            try { java.text.Normalizer.normalize(ch.toString(), java.text.Normalizer.Form.NFKC) } catch (_: Throwable) { ch.toString() }
+        } else ch.toString()
+
+    /** Evidence that a line is stored in visual (reversed) order: positive = reversed, negative = logical. */
+    fun evidence(line: String): Int {
+        var score = 0
+        val words = line.split(' ', '\u00A0')
+        for (w0 in words) {
+            val sb2 = StringBuilder()
+            for (ch in w0) sb2.append(canon(ch))
+            val w = sb2.toString().filter { it.code !in 0x064B..0x065F }
+            if (w.length < 3 || !w.any { isArabic(it) }) continue
+            if (w.startsWith("ال") || w.startsWith("وال") || w.startsWith("بال") || w.startsWith("لل")) score--
+            if (w.endsWith("لا") && w.length >= 4 && !w.startsWith("لا")) score++
+            if (w.endsWith("لإ") || w.endsWith("لأ")) score++
+        }
+        return score
+    }
+
+    private fun mirror(ch: Char): Char = when (ch) {
+        '(' -> ')'; ')' -> '('; '[' -> ']'; ']' -> '['; '{' -> '}'; '}' -> '{'; '<' -> '>'; '>' -> '<'; '«' -> '»'; '»' -> '«'
+        else -> ch
+    }
+
+    /** Fixes reversed Arabic lines and expands presentation forms. Call once after getText. */
+    fun finish() {
+        val text = sb.toString()
+        if (text.isEmpty()) return
+        val lines = ArrayList<IntArray>()
+        var i = 0
+        while (i <= text.length) {
+            var j = text.indexOf('\n', i)
+            if (j < 0) j = text.length
+            lines.add(intArrayOf(i, j))
+            i = j + 1
+        }
+        val ev = IntArray(lines.size) { evidence(text.substring(lines[it][0], lines[it][1])) }
+        val pageEv = ev.sum()
+        val outS = StringBuilder()
+        val outR = ArrayList<RectF?>()
+        for ((li, ln) in lines.withIndex()) {
+            val s0 = ln[0]
+            val e0 = ln[1]
+            var chars = text.substring(s0, e0).toCharArray()
+            var rs = ArrayList(rects.subList(s0, e0))
+            val hasAr = chars.any { isArabic(it) }
+            val flip = hasAr && (if (Math.abs(ev[li]) >= 2) ev[li] > 0 else if (ev[li] != 0) ev[li] > 0 else pageEv >= 3)
+            if (flip) {
+                chars = chars.reversedArray()
+                rs = ArrayList(rs.reversed())
+                for (k in chars.indices) chars[k] = mirror(chars[k])
+                var k = 0
+                while (k < chars.size) {
+                    if (chars[k].code < 0x590 && chars[k].isLetterOrDigit()) {
+                        var m = k
+                        while (m + 1 < chars.size && chars[m + 1].code < 0x590 && chars[m + 1].isLetterOrDigit()) m++
+                        var a = k
+                        var b = m
+                        while (a < b) {
+                            val t = chars[a]; chars[a] = chars[b]; chars[b] = t
+                            val tr = rs[a]; rs[a] = rs[b]; rs[b] = tr
+                            a++; b--
+                        }
+                        k = m + 1
+                    } else k++
+                }
+            }
+            for (k in chars.indices) {
+                val piece = canon(chars[k])
+                for (p in piece) { outS.append(p); outR.add(rs[k]) }
+            }
+            if (e0 < text.length) { outS.append('\n'); outR.add(rects[e0]) }
+        }
+        sb.setLength(0)
+        sb.append(outS)
+        rects.clear()
+        rects.addAll(outR)
+    }
 }
 
 class TextEngine(private val fileProvider: () -> File) {
@@ -275,6 +359,7 @@ class TextEngine(private val fileProvider: () -> File) {
         c.setStartPage(index + 1)
         c.setEndPage(index + 1)
         c.getText(d)
+        c.finish()
         val pt = PageText(c.sb.toString(), c.rects.toTypedArray())
         cache[index] = pt
         return pt
